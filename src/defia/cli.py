@@ -368,6 +368,14 @@ def train_gbm(config: str, log_target, objective, tag: str) -> None:
     pd.DataFrame({"id": te["id"], "predicted": test_pred}).to_csv(out, index=False)
     click.echo(f"[gbm] submission -> {out}")
 
+    # --- OOF (holdout) + test predictions pour le blending (Milestone E) ---
+    oof_dir = processed / "oof"; oof_dir.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({"id": df_val["id"].to_numpy(), "pred": val_pred}).to_parquet(
+        oof_dir / f"oof_{tag}.parquet", index=False)
+    pd.DataFrame({"id": te["id"].to_numpy(), "pred": test_pred}).to_parquet(
+        oof_dir / f"test_{tag}.parquet", index=False)
+    click.echo(f"[gbm] OOF + test preds -> {oof_dir}/(oof|test)_{tag}.parquet")
+
     reports = cfg.resolve("reports"); reports.mkdir(parents=True, exist_ok=True)
     (reports / f"gbm_{tag}.json").write_text(json.dumps({
         "objective": gbm_cfg["objective"], "log_target": lt, "best_iter": int(best),
@@ -393,10 +401,78 @@ def train_transformer(config: str) -> None:
 
 @main.command()
 @click.option("--config", default="configs/default.yaml")
-def blend(config: str) -> None:
-    """Blending OOF des modèles -> prédiction finale."""
-    _cfg(config)
-    raise SystemExit("Étape 'blend' à implémenter après validation du plan.")
+@click.option("--tag", default="blend", help="Nom de la soumission finale.")
+def blend(config: str, tag: str) -> None:
+    """Blending OOF des modèles (poids optimisant la MAE sur le holdout) -> soumission finale."""
+    import json
+
+    import numpy as np
+    import pandas as pd
+
+    from defia.data.load import load_split
+    from defia.evaluation.cv import temporal_holdout_indices
+    from defia.evaluation.metrics import mae
+    from defia.models.blend import optimize_weights_mae
+
+    cfg = _cfg(config)
+    processed = cfg.resolve("processed")
+    oof_dir = processed / "oof"
+    target = cfg["data"]["target"]
+    val_days = int(cfg["cv"].get("val_days", 7))
+
+    # Vérité holdout (7 derniers jours du train) : id -> ups
+    tr = load_split(cfg.resolve("interim"), "train", ["id", target, "created_utc"])
+    _, val_idx = temporal_holdout_indices(tr["created_utc"].to_numpy(), val_days)
+    truth = tr.iloc[val_idx][["id", target]].rename(columns={target: "y"})
+
+    # Découvre les modèles : paires oof_<name>.parquet / test_<name>.parquet
+    models = []
+    for p in sorted(oof_dir.glob("oof_*.parquet")):
+        name = p.stem[len("oof_"):]
+        tpath = oof_dir / f"test_{name}.parquet"
+        if tpath.exists():
+            models.append(name)
+    if not models:
+        raise SystemExit(f"Aucun modèle OOF trouvé dans {oof_dir} (lance train-gbm / rapatrie le transformer).")
+    click.echo(f"[blend] {len(models)} modèles : {', '.join(models)}")
+
+    # Matrice OOF alignée sur la vérité holdout
+    base = truth.copy()
+    for name in models:
+        o = pd.read_parquet(oof_dir / f"oof_{name}.parquet").rename(columns={"pred": name})
+        base = base.merge(o, on="id", how="left")
+    base = base.dropna(subset=models)
+    y = base["y"].to_numpy(dtype=float)
+    X = base[models].to_numpy(dtype=float)
+
+    singles = {name: mae(y, base[name].to_numpy()) for name in models}
+    w = optimize_weights_mae(X, y)
+    blend_mae = mae(y, X @ w)
+
+    click.echo("[blend] MAE holdout par modèle :")
+    for name, m in sorted(singles.items(), key=lambda kv: kv[1]):
+        click.echo(f"   {name:26s} {m:.4f}   poids={w[models.index(name)]:.3f}")
+    best_single = min(singles.values())
+    click.echo(f"[blend] ★ BLEND MAE={blend_mae:.4f}  (meilleur seul {best_single:.4f}, "
+               f"gain {(best_single-blend_mae)/best_single:+.2%})")
+
+    # Application des poids au test -> soumission
+    te_ids = pd.read_parquet(oof_dir / f"test_{models[0]}.parquet")[["id"]]
+    tmat = te_ids.copy()
+    for name in models:
+        t = pd.read_parquet(oof_dir / f"test_{name}.parquet").rename(columns={"pred": name})
+        tmat = tmat.merge(t, on="id", how="left")
+    test_pred = np.clip(tmat[models].to_numpy(dtype=float) @ w, -50, None)
+
+    subs = cfg.resolve("submissions"); subs.mkdir(parents=True, exist_ok=True)
+    out = subs / f"submission_{tag}.csv"
+    pd.DataFrame({"id": tmat["id"], "predicted": test_pred}).to_csv(out, index=False)
+    reports = cfg.resolve("reports"); reports.mkdir(parents=True, exist_ok=True)
+    (reports / f"blend_{tag}.json").write_text(json.dumps({
+        "models": models, "weights": dict(zip(models, w.tolist())),
+        "singles_mae": singles, "blend_mae": blend_mae, "best_single": best_single,
+    }, indent=2), encoding="utf-8")
+    click.echo(f"[blend] soumission finale -> {out}")
 
 
 @main.command()
