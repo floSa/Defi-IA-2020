@@ -221,6 +221,58 @@ def author_encoding(config: str, smoothing: float) -> None:
                f"{tr_feat['author_hist_mean'].mean():.3f}")
 
 
+@main.command("tfidf-features")
+@click.option("--config", default="configs/default.yaml")
+@click.option("--chunk", default=150_000)
+@click.option("--sample-size", default=300_000, help="Taille d'échantillon train pour ajuster la SVD.")
+def tfidf_features(config: str, chunk: int, sample_size: int) -> None:
+    """TF-IDF (hashing) + SVD -> data/processed/{split}_tfidf.parquet (features denses tfidf_svd_*)."""
+    import numpy as np
+    import pandas as pd
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from defia.data.load import unescape_body
+    from defia.features.text import fit_svd_on_sample, transform_tfidf_svd
+
+    cfg = _cfg(config)
+    interim = cfg.resolve("interim")
+    processed = cfg.resolve("processed"); processed.mkdir(parents=True, exist_ok=True)
+    tcfg = cfg["features"]["tfidf"]
+    n_comp = int(tcfg.get("svd_components", 128))
+    n_feat = int(tcfg.get("n_features", 2 ** 18))
+    ngram = tuple(tcfg.get("word_ngram", [1, 2]))
+
+    click.echo(f"[tfidf] ajustement SVD sur échantillon train (n={sample_size:,})...")
+    sample = pd.read_parquet(interim / "train.parquet", columns=["body"]).sample(
+        n=min(sample_size, 3_000_000), random_state=cfg.seed)
+    hv, svd = fit_svd_on_sample(unescape_body(sample["body"]), n_feat, ngram, n_comp, cfg.seed)
+    del sample
+    click.echo(f"[tfidf] SVD ajustée : {n_comp} composantes, variance expliquée cumulée="
+               f"{svd.explained_variance_ratio_.sum():.3f}")
+
+    cols = [f"tfidf_svd_{i}" for i in range(n_comp)]
+    for split in ("train", "test"):
+        pf = pq.ParquetFile(interim / f"{split}.parquet")
+        out = processed / f"{split}_tfidf.parquet"
+        writer = None
+        click.echo(f"[tfidf] transform {split} (chunk={chunk:,})...")
+        offset = 0
+        for batch in pf.iter_batches(batch_size=chunk, columns=["id", "body"]):
+            b = batch.to_pandas()
+            vecs = transform_tfidf_svd(unescape_body(b["body"]), hv, svd)
+            feat = pd.DataFrame(vecs, columns=cols)
+            feat.insert(0, "id", b["id"].to_numpy())
+            tbl = pa.Table.from_pandas(feat, preserve_index=False)
+            if writer is None:
+                writer = pq.ParquetWriter(out, tbl.schema, compression="zstd")
+            writer.write_table(tbl)
+            offset += len(b)
+            click.echo(f"    {split}: {offset:,} lignes")
+        writer.close()
+        click.echo(f"[tfidf] écrit {out} ({offset:,} lignes)")
+
+
 @main.command("train-gbm")
 @click.option("--config", default="configs/default.yaml")
 @click.option("--log-target/--no-log-target", default=None, help="Entraîner sur log1p(ups).")
@@ -253,6 +305,11 @@ def train_gbm(config: str, log_target, objective, tag: str) -> None:
         tr = tr.merge(pd.read_parquet(ae_tr), on="id", how="left")
         te = te.merge(pd.read_parquet(ae_te), on="id", how="left")
         click.echo("[gbm] + author_hist_mean / author_hist_count_log (target encoding auteur)")
+    tf_tr, tf_te = processed / "train_tfidf.parquet", processed / "test_tfidf.parquet"
+    if tf_tr.exists() and tf_te.exists():
+        tr = tr.merge(pd.read_parquet(tf_tr), on="id", how="left")
+        te = te.merge(pd.read_parquet(tf_te), on="id", how="left")
+        click.echo("[gbm] + tfidf_svd_* (TF-IDF hashing + SVD)")
     cols = feature_columns(tr)
     click.echo(f"[gbm] {len(cols)} features, train={len(tr):,}, test={len(te):,}, "
                f"objective={gbm_cfg['objective']}, log_target={lt}")

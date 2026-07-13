@@ -30,10 +30,9 @@ features:
   sentiment: true             # VADER
   tfidf:
     enabled: true
-    max_features: 200000
+    n_features: 262144         # 2^18, espace de hashing (HashingVectorizer, stateless/mémoire-léger)
     word_ngram: [1, 2]
-    char_ngram: [3, 5]
-    svd_components: 128        # réduction pour injection GBM
+    svd_components: 48         # réduction (TruncatedSVD) pour injection GBM (128 -> OOM sur WSL 7.4Go)
   embeddings:
     enabled: false            # étape C (GPU) — activer selon l'environnement
     model: intfloat/e5-base-v2

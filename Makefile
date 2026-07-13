@@ -37,6 +37,9 @@ features:
 author-encoding:
 	$(PY) -m defia.cli author-encoding --config $(CONFIG)
 
+tfidf-features:
+	$(PY) -m defia.cli tfidf-features --config $(CONFIG)
+
 train-gbm:
 	$(PY) -m defia.cli train-gbm --config $(CONFIG)
 

@@ -142,4 +142,39 @@ sans dominer — le signal de timing/thread reste prépondérant. Nouveau champi
 Commande : `make author-encoding` puis `make train-gbm` (merge automatique si les fichiers
 `*_author_enc.parquet` existent).
 
+### 2026-07-13 (suite) — TF-IDF abandonné pour ce jalon ; clôture Milestone B
+Implémenté `features/text.py` (`HashingVectorizer` + `TruncatedSVD`, stateless/mémoire-léger
+par design, testé par smoke test unitaire avant le run complet — le code est correct) et la
+commande `tfidf-features`. Deux tentatives :
+
+- **128 composantes SVD** : build features OK, mais le fichier dense obtenu (2,2 Go train) a fait
+  monter LightGBM à 6,3 Go RSS pendant la construction du dataset (WSL plafonné à 7,4 Go) →
+  process tué (exit 15).
+- **48 composantes SVD** (réduction pour rentrer dans le budget mémoire) : **3 tentatives
+  consécutives** interrompues par une **instabilité de l'hôte Windows lui-même** (WSL puis
+  parfois PowerShell entier injoignables pendant plusieurs dizaines de secondes, y compris hors
+  de tout pic mémoire mesuré côté WSL) — pas un bug du code, confirmé par : (a) smoke test
+  unitaire passant, (b) les runs interrompus avaient progressé normalement sans erreur Python
+  ni trace OOM avant la coupure, (c) le dernier fichier partiel (450k/3,2M lignes) ne montrait
+  aucune anomalie.
+
+**Décision : abandon du TF-IDF pour ce jalon**, conformément au garde-fou fixé (ne pas boucler
+indéfiniment sur un échec d'infrastructure hors de notre contrôle). Le code reste dans le repo,
+inchangé et réutilisable tel quel sur une machine plus stable (desktop 4060 Ti, Kaggle) —
+`make tfidf-features` puis `make train-gbm` avec `data/processed/*_tfidf.parquet` présents.
+
+**Milestone B clos sur le champion : MAE = 8.3559** (holdout temporel), soit **-29.8% vs la
+baseline** (11.907) — features réseau/structurelles + stylométrie/sentiment + target encoding
+auteur temporellement propre. Solidement dans la zone historique 8-11 communiquée par Florian.
+
+**Bilan des essais du jalon :**
+| Config | MAE | Retenu |
+|---|---|---|
+| Baseline (médiane) | 11.907 | — |
+| GBM `mae`, réseau+texte | 8.3946 | base |
+| GBM `mae`, + target encoding auteur | **8.3559** | ✅ **champion** |
+| GBM `huber` | 10.4592 | non (pire) |
+| GBM `mae` + log1p signé | (non re-testé après fix) | — |
+| GBM `mae` + TF-IDF 48-dim | — | abandonné (infra) |
+
 <!-- Prochaines entrées ajoutées à chaque jalon : résultats MAE, choix, ablations. -->
