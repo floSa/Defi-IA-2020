@@ -39,6 +39,10 @@ dist/
 *.local
 kaggle.json
 
+# Export Kaggle (régénéré par `make kaggle-export`, ne pas committer)
+scripts/kaggle/dataset/
+scripts/kaggle/kernel-metadata.json
+
 # OS
 .DS_Store
 Thumbs.db

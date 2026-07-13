@@ -221,6 +221,31 @@ def author_encoding(config: str, smoothing: float) -> None:
                f"{tr_feat['author_hist_mean'].mean():.3f}")
 
 
+@main.command("kaggle-export")
+@click.option("--config", default="configs/default.yaml")
+@click.option("--out", default="scripts/kaggle/dataset", help="Dossier de sortie pour le dataset Kaggle.")
+def kaggle_export(config: str, out: str) -> None:
+    """Exporte un sous-ensemble léger (id, body, created_utc[, ups]) pour upload en dataset Kaggle."""
+    from pathlib import Path
+
+    from defia.config import REPO_ROOT
+    from defia.data.load import load_split
+
+    cfg = _cfg(config)
+    interim = cfg.resolve("interim")
+    out_path = Path(out)
+    out_dir = out_path if out_path.is_absolute() else REPO_ROOT / out_path
+    out_dir.mkdir(parents=True, exist_ok=True)
+    target = cfg["data"]["target"]
+
+    tr = load_split(interim, "train", ["id", "body", "created_utc", target])
+    te = load_split(interim, "test", ["id", "body", "created_utc"])
+    tr.to_parquet(out_dir / "train.parquet", compression="zstd", index=False)
+    te.to_parquet(out_dir / "test.parquet", compression="zstd", index=False)
+    click.echo(f"[kaggle-export] écrit {out_dir}/train.parquet ({len(tr):,}) "
+               f"et test.parquet ({len(te):,})")
+
+
 @main.command("tfidf-features")
 @click.option("--config", default="configs/default.yaml")
 @click.option("--chunk", default=150_000)
@@ -310,6 +335,11 @@ def train_gbm(config: str, log_target, objective, tag: str) -> None:
         tr = tr.merge(pd.read_parquet(tf_tr), on="id", how="left")
         te = te.merge(pd.read_parquet(tf_te), on="id", how="left")
         click.echo("[gbm] + tfidf_svd_* (TF-IDF hashing + SVD)")
+    em_tr, em_te = processed / "train_emb.parquet", processed / "test_emb.parquet"
+    if em_tr.exists() and em_te.exists():
+        tr = tr.merge(pd.read_parquet(em_tr), on="id", how="left")
+        te = te.merge(pd.read_parquet(em_te), on="id", how="left")
+        click.echo("[gbm] + emb_* (embeddings de phrase, Kaggle GPU)")
     cols = feature_columns(tr)
     click.echo(f"[gbm] {len(cols)} features, train={len(tr):,}, test={len(te):,}, "
                f"objective={gbm_cfg['objective']}, log_target={lt}")

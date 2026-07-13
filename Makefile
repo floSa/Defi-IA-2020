@@ -4,7 +4,8 @@
 PY ?= python
 CONFIG ?= configs/default.yaml
 
-.PHONY: help setup eda data baseline features train-gbm train-transformer embeddings blend submit test clean
+.PHONY: help setup eda data baseline features author-encoding tfidf-features train-gbm \
+        kaggle-export kaggle-embeddings kaggle-transformer train-transformer embeddings blend submit test clean
 
 help:
 	@echo "Cibles :"
@@ -39,6 +40,15 @@ author-encoding:
 
 tfidf-features:
 	$(PY) -m defia.cli tfidf-features --config $(CONFIG)
+
+kaggle-export:
+	$(PY) -m defia.cli kaggle-export --config $(CONFIG)
+
+kaggle-embeddings:
+	bash scripts/kaggle/prepare_and_push.sh embeddings
+
+kaggle-transformer:
+	bash scripts/kaggle/prepare_and_push.sh transformer
 
 train-gbm:
 	$(PY) -m defia.cli train-gbm --config $(CONFIG)
