@@ -1,0 +1,14 @@
+{
+  "temporal_holdout": {
+    "global_median": 11.907397094794018,
+    "median_by_hour": 11.907397094794018,
+    "median_by_author": 13.252987345947405,
+    "const_1": 11.907397094794018,
+    "const_mean": 20.676286121525983
+  },
+  "group_kfold": {
+    "global_median": 12.103005053266852,
+    "median_by_hour": 12.103005053266852,
+    "median_by_author": 13.100664996743838
+  }
+}

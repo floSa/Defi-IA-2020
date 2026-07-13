@@ -70,13 +70,60 @@
   régime — souvent plus robuste sur queues lourdes que la régression directe.
 - Comparaison systématique `log1p` vs espace direct, MAE toujours mesurée en espace original.
 
-## 4. Ce qui dépasse l'état de l'art 2020 (l'ask « état de l'art à jour »)
-- Encodeurs **ModernBERT / DeBERTa-v3 / e5-bge-gte** (2024+) vs BERT-base de 2020.
-- **CatBoost / LightGBM** avec objectif L1 natif et meilleur handling catégoriel.
-- **Late fusion** texte-embeddings + tabulaire (approche « TabText ») avec tête MLP légère.
-- Modélisation **deux étages** de la queue + calibration MAE.
-- Features **LLM zero-shot** optionnelles (qualité/topic via petit LLM local) — dans le respect
-  strict de la règle « pas de re-téléchargement du dataset complet ».
+## 4. Stack « état de l'art 2026 » — ce qui nous fait dépasser 2020
+
+Une solution 2020 typique = TF-IDF + features à la main + XGBoost, éventuellement BERT-base.
+Voici les briques **récentes** qu'on mobilise, avec le niveau d'engagement.
+
+### 4.1 Encodeurs de texte (2024–2026) — **par défaut**
+- **ModernBERT-base** (déc. 2024) pour le fine-tuning `body → ups` : plus rapide, contexte long,
+  nettement au-dessus de BERT/RoBERTa 2020. Drop-in idéal.
+- **Embeddings de phrase modernes** (top MTEB 2025) pour injection GBM : `bge`/`gte`/`nomic-embed`
+  *base*. On exploite les **embeddings Matryoshka** (Nomic/bge) → on tronque à 128–256 dims pour
+  un coût GBM faible sans ré-entraîner.
+
+### 4.2 Features dérivées d'un LLM (le vrai saut vs 2020) — **par défaut, léger**
+Un commentaire AskReddit devient viral par l'**humour / la punchline / la relatabilité**, pas par
+le TF-IDF. On extrait des signaux qu'un LLM sait juger et pas un sac-de-mots :
+- **Scoring zéro-shot** via un petit LLM instruct local (Qwen2.5-0.5B/1.5B, Llama-3.2) :
+  humour, caractère polémique, effort/qualité, ton, présence de storytelling. Sorties
+  structurées → colonnes GBM.
+- **Têtes de classification spécialisées** prêtes à l'emploi : toxicité (Detoxify), émotions
+  (GoEmotions), sarcasme. Rapide, GPU-léger.
+> Respecte strictement la règle « pas de re-téléchargement du dataset Reddit complet » : on
+> n'utilise que des modèles pré-entraînés publics, pas un dump de labels.
+
+### 4.3 Network mining moderne — **par défaut (hand-features) + optionnel (embeddings de graphe)**
+- Hand-features structurelles (cf. §2a) : socle robuste.
+- **Embeddings de graphe** (upgrade 2020→2026) : `node2vec`/GraphSAGE sur le **graphe
+  d'interactions auteur→auteur** et la structure de l'arbre de réponses → vecteurs d'auteur/thread
+  injectés dans le GBM. Remplace les features de centralité faites main par du représentationnel.
+
+### 4.4 Modèle tabulaire & gestion de la queue lourde — **par défaut**
+- **LightGBM/CatBoost** objectif L1/quantile natif ; **Optuna** (TPE multivarié + Hderband) pour
+  l'HPO.
+- **Modèle en deux parties (hurdle)** adapté à la distribution : (a) P(downvoté / =1 / >1),
+  (b) régression de la queue conditionnellement — puis recomposition. Naturel ici vu les 52 % à 1.
+- **Régression distributionnelle / quantile(0.5)** : on prédit la médiane conditionnelle, exactement
+  ce que la MAE récompense (option LightGBM quantile ou têtes multi-quantiles).
+
+### 4.5 Fusion multimodale — **par défaut (late) / optionnel (jointe)**
+- **Late fusion** (embeddings + LLM-features + tabulaire → GBM) : robuste, on commence par là.
+- Optionnel : **tête de fusion jointe** (MLP sur `concat[CLS transformer, features tabulaires]`)
+  entraînée bout-en-bout — approche « TabText » 2023+.
+
+### 4.6 Robustesse & validation — **par défaut**
+- **Validation adverse** train-vs-test (le test = 24 %, possible dérive temporelle sur mai 2015).
+- Blending final optimisé MAE (ridge/NNLS/LGBM) sur les OOF, + ablations par famille.
+- (Optionnel) **prédiction conforme** pour des intervalles calibrés — bonus analytique, pas requis
+  par la MAE ponctuelle.
+
+### Ordre de priorité (rapport gain/effort décroissant)
+1. GBM + hand-features réseau/texte + objectif MAE/quantile (socle, étape B).
+2. Embeddings modernes en late fusion (étape C).
+3. LLM zero-shot features (étape C bis — fort différenciateur vs 2020).
+4. Fine-tuning ModernBERT (étape D).
+5. Embeddings de graphe + hurdle model + fusion jointe (raffinements, étape E).
 
 ## 5. Évaluation & reproductibilité
 - CV `GroupKFold(link_id)` ; tracking des MAE OOF par modèle et de l'ensemble.

@@ -63,4 +63,23 @@ make submit              # submissions/submission.csv (id,predicted)
 - Plan validé avec Florian : jalons A→E en autonomie, route GPU = Kaggle API.
 - Environnement `uv` créé (le cœur CPU installé).
 
+### 2026-07-13 — Milestone A : data layer + baselines
+- Conversion CSV → parquet (chunké, zstd) : `data/interim/{train,test}.parquet`
+  (3 218 512 / 1 016 458 lignes).
+- **Constat décisif : split TEMPOREL** (train 1–24 mai, test 25–31 mai, sans recouvrement) →
+  validation = holdout temporel 7 jours. `cv.py` mis à jour (`temporal_holdout_indices`,
+  `time_series_folds`) ; `configs/default.yaml` scheme=temporal.
+- **Baselines (holdout temporel, la barre) :**
+  | stratégie | MAE |
+  |---|---|
+  | prédire 1 (médiane) | **11.907** |
+  | médiane/heure | 11.907 |
+  | médiane/auteur | 13.253 (pire) |
+  | moyenne (12.74) | 20.676 |
+- **Enseignement clé** : 52 % des `ups` valent 1 → le cœur ne pèse ~rien en MAE ; les ~11,9 pts
+  viennent de la **queue virale**. **Le problème est une régression de queue.** Le feature
+  engineering doit cibler « qui devient viral et combien ». Le target encoding naïf par auteur
+  dégrade → prévoir lissage bayésien + passé seulement.
+- Première soumission (format `id,predicted`, médiane=1) : `submissions/submission_baseline_median.csv`.
+
 <!-- Prochaines entrées ajoutées à chaque jalon : résultats MAE, choix, ablations. -->

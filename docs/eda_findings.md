@@ -30,6 +30,24 @@ Distribution grossière : `≤0` 7,5 % · `=1` 52 % · `2–5` 29 % · `6–20` 
    on entraînera plutôt avec des objectifs L1 / Huber / quantile(0.5), et on comparera
    « MAE dans l'espace original » systématiquement.
 
+## ⚠️ Le split train/test est TEMPOREL (constat décisif)
+Les plages `created_utc` ne se recouvrent pas :
+- **Train** : 2015-05-01 00:00:00 → 2015-05-24 23:59:58 (3 218 512 lignes)
+- **Test**  : 2015-05-25 00:00:01 → 2015-05-31 23:59:59 (1 016 458 lignes)
+
+Le fichier est trié : tout le train (24 premiers jours) puis tout le test (7 derniers jours).
+**Ce n'est donc pas un split aléatoire mais une prévision temporelle.** Implications :
+1. **Validation temporelle obligatoire** : on valide sur les 7 derniers jours du train
+   (18–24 mai), modèle appris sur 1–17 mai → même horizon que le test. Un GroupKFold aléatoire
+   surestimerait la performance.
+2. **Dérive de distribution probable** : les commentaires du test sont plus récents, ont eu moins
+   de temps pour accumuler des votes (selon la date du snapshot) → `ups` du test possiblement plus
+   bas. À contrôler par **validation adverse**.
+3. **Features d'âge** : privilégier l'âge *intra-thread* (âge vs 1er commentaire du thread, portable)
+   plutôt que l'âge *absolu* vs snapshot (non stationnaire train→test).
+4. **Target encoding auteur** : n'utiliser que le passé (respect de l'ordre temporel) — la
+   validation temporelle le garantit naturellement.
+
 ## Réseau
 - **570 735 auteurs uniques** ; **312 007** lignes avec auteur `[deleted]`/vide.
 - **148 848 threads** (`link_id`) ⇒ ~28 commentaires/thread en moyenne.

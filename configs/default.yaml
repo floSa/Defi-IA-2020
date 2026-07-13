@@ -18,9 +18,11 @@ data:
   test_is_null_target: true   # ups == NaN  ->  test
 
 cv:
-  scheme: group_kfold
-  n_splits: 5
-  group: link_id
+  # Le split officiel est TEMPOREL (train 1-24 mai, test 25-31 mai) => validation temporelle.
+  scheme: temporal          # temporal | time_series | group_kfold
+  val_days: 7               # horizon de validation = horizon du test (7 jours)
+  n_splits: 4               # pour scheme=time_series
+  group: link_id            # pour scheme=group_kfold (diagnostic, optimiste ici)
 
 features:
   network: true               # timing, arbre de réponses, auteur, graphe

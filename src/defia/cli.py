@@ -33,7 +33,88 @@ def data(config: str) -> None:
     cfg = _cfg(config)
     from defia.data.load import build_train_test
 
-    build_train_test(cfg.resolve("raw_csv"), cfg.resolve("interim"))
+    counts = build_train_test(cfg.resolve("raw_csv"), cfg.resolve("interim"))
+    click.echo(f"[data] écrit train={counts['train']:,} test={counts['test']:,} "
+               f"-> {cfg.resolve('interim')}")
+
+
+@main.command()
+@click.option("--config", default="configs/default.yaml")
+def baseline(config: str) -> None:
+    """Baselines MAE (médiane globale + médianes par groupe) en HOLDOUT TEMPOREL.
+
+    Le split officiel étant temporel (train 1-24 mai, test 25-31 mai), on valide sur les 7
+    derniers jours du train : c'est le juge de paix. On rapporte aussi le GroupKFold à titre de
+    diagnostic (optimiste sur ce problème).
+    """
+    import json
+
+    import numpy as np
+    import pandas as pd
+
+    from defia.data.load import load_split
+    from defia.evaluation.cv import group_kfold_indices, temporal_holdout_indices
+    from defia.evaluation.metrics import mae
+    from defia.models.baseline import predict_group_median
+
+    cfg = _cfg(config)
+    interim = cfg.resolve("interim")
+    target = cfg["data"]["target"]
+    group = cfg["cv"]["group"]
+    val_days = int(cfg["cv"].get("val_days", 7))
+
+    click.echo("[baseline] chargement du train...")
+    tr = load_split(interim, "train", columns=["id", target, group, "created_utc", "author"])
+    tr["hour"] = (tr["created_utc"] // 3600) % 24
+    y = tr[target].to_numpy(dtype=float)
+    n = len(tr)
+    click.echo(f"[baseline] {n:,} lignes ; médiane={np.median(y):g} moyenne={y.mean():.3f}")
+
+    def eval_baselines(fit_df, val_df) -> dict[str, float]:
+        yv = val_df[target].to_numpy(dtype=float)
+        med = float(fit_df[target].median())
+        preds = {
+            "global_median": np.full(len(val_df), med),
+            "median_by_hour": predict_group_median(fit_df, val_df, "hour", target),
+            "median_by_author": predict_group_median(fit_df, val_df, "author", target),
+            "const_1": np.ones(len(val_df)),
+            "const_mean": np.full(len(val_df), fit_df[target].mean()),
+        }
+        return {k: mae(yv, p) for k, p in preds.items()}
+
+    # --- Juge de paix : holdout temporel (7 derniers jours) ---
+    fit_idx, val_idx = temporal_holdout_indices(tr["created_utc"].to_numpy(), val_days)
+    temporal = eval_baselines(tr.iloc[fit_idx], tr.iloc[val_idx])
+    click.echo(f"\n[baseline] MAE — HOLDOUT TEMPOREL ({val_days} derniers jours, "
+               f"fit={len(fit_idx):,} / val={len(val_idx):,}) :")
+    for name, val in sorted(temporal.items(), key=lambda kv: kv[1]):
+        click.echo(f"   {name:20s} {val:.4f}")
+
+    # --- Diagnostic : GroupKFold thread (optimiste) ---
+    oof = {k: np.zeros(n) for k in ("global_median", "median_by_hour", "median_by_author")}
+    for tri, vai in group_kfold_indices(tr[group].to_numpy(), 5, cfg.seed):
+        f, v = tr.iloc[tri], tr.iloc[vai]
+        oof["global_median"][vai] = float(f[target].median())
+        oof["median_by_hour"][vai] = predict_group_median(f, v, "hour", target)
+        oof["median_by_author"][vai] = predict_group_median(f, v, "author", target)
+    groupkf = {k: mae(y, p) for k, p in oof.items()}
+    click.echo("\n[baseline] MAE — GroupKFold thread (diagnostic, optimiste) :")
+    for name, val in sorted(groupkf.items(), key=lambda kv: kv[1]):
+        click.echo(f"   {name:20s} {val:.4f}")
+
+    reports = cfg.resolve("reports"); reports.mkdir(parents=True, exist_ok=True)
+    (reports / "baseline_mae.json").write_text(
+        json.dumps({"temporal_holdout": temporal, "group_kfold": groupkf}, indent=2),
+        encoding="utf-8")
+
+    # Première soumission : médiane globale du train pour tout le test (format id,predicted)
+    te = load_split(interim, "test", columns=["id"])
+    best_const = float(np.median(y))
+    sub = pd.DataFrame({"id": te["id"], "predicted": best_const})
+    subs = cfg.resolve("submissions"); subs.mkdir(parents=True, exist_ok=True)
+    out = subs / "submission_baseline_median.csv"
+    sub.to_csv(out, index=False)
+    click.echo(f"\n[baseline] submission : {out} ({len(sub):,} lignes, predicted={best_const:g})")
 
 
 @main.command()

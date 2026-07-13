@@ -4,7 +4,7 @@
 PY ?= python
 CONFIG ?= configs/default.yaml
 
-.PHONY: help setup eda data features train-gbm train-transformer embeddings blend submit test clean
+.PHONY: help setup eda data baseline features train-gbm train-transformer embeddings blend submit test clean
 
 help:
 	@echo "Cibles :"
@@ -27,6 +27,9 @@ eda:
 
 data:
 	$(PY) -m defia.cli data --config $(CONFIG)
+
+baseline:
+	$(PY) -m defia.cli baseline --config $(CONFIG)
 
 features:
 	$(PY) -m defia.cli features --config $(CONFIG)
