@@ -1,0 +1,108 @@
+Contexte
+
+Cette compétition se déroule dans le contexte des masters "Statistiques et Econométrie" de TSE et SID de l'Université Paul Sabatier. Elle s'adresse aux étudiants de M1 SID qui ont suivi le module "Text and Network Mining" et à ceux du M2 SE qui ont suivi le module "Web Mining".
+Cas d'étude
+
+Peut on prédire le nombre de votes positifs reçus par un commentaire Reddit, connaissant le contenu du commentaire et quelques méta-données ?
+Objectif
+
+Vous devez combiner des méthodes d'analyse de réseaux et d'analyses de texte pour proposer un modèle prédictif.
+Votre travail
+
+Schématiquement, tout problème d'apprentissage supervisé peut être abordé en considérant la méthodologie suivante :
+
+    Récupération des données d'apprentissage et de test
+    Nettoyage des données
+    Définition et implémentation de caractéristiques
+    Apprentissage d'un modèle prédictif
+    Évaluation du modèle
+    Amélioration du modèle
+
+Vous adopterez donc cette méthodologie pour mener à bien ce problème de régression. Plus particulièrement, voici quelques précisions sur le travail à réaliser.
+
+    Récupération des données d'apprentissage et de test. Le découpage de la base de données en jeu de données d'apprentissage et jeu de test n'est pas de votre ressort. Les identifiants des commentaires appartenant à l'ensemble d'apprentissage sont donnés sur le site de la compétition Kaggle.
+
+    Nettoyage des données. Aucune indication universelle concernant cette étape est donnée. Le pré-traitement que vous effectuerez sur les données est propre à chaque solution. Tout choix doit néanmoins être justifié.
+
+    Définition et implémentation de caractéristiques. Il n'existe pas de liste exhaustive de caractéristiques utiles à la bonne prédiction du nombre de votes positifs. Cette étape, majeure dans les projets d'apprentissage, combine rigueur et créativité. Pour vous mettre sur la voie, voici quelques exemples de caractéristiques regroupées pouvant être utiles dans ce contexte :
+        Caractéristiques structurelles : profondeur dans la discussion, autorité de l'auteur, appartenance du commentaire à un lien particulièrement populaire, interactions fréquentes des utilisateurs de la discussion en cours, …
+        Caractéristiques stylométriques : richesse du vocabulaire, présence de liens dans le commentaire, présence de certains signes de ponctuation (!!), présence d'émoticones,…
+        Caractéristiques topicales : le commentaire aborde un sujet populaire, le commentaire traite du même sujet que le lien concerné, …
+
+    Pour chacune des caractéristiques envisagées, il sera important d'évaluer son caractère discriminant sur le nombre de votes positifs reçus, i.e., autrement dit, la caractéristique est-elle corrélée au nombre de votes positifs. Au delà du caractère original des caractéristiques développées, nous serons particulièrement exigeants sur la rigueur déployée pour valider la pertinence des caractéristiques utilisées.
+
+    Apprentissage d'un modèle prédictif. Il s'agira ici d'utiliser un algorithme supervisé pour apprendre à prédire la valeur de la variable cible (le nombre de votes positifs). Une myriade d'algorithmes existent et sont implémentés dans diverses librairies Python, e.g., l'excellente librairie scikit-learn. Vous êtes libres de choisir celui qui vous convient le mieux. Sachez néanmoins que les dernières compétitions Kaggle montrent que les algorithmes de type gradient boosting (XGBoost ou LGBM) tiennent le haut du pavé.
+
+    Évaluation du modèle. La métrique que nous utilisons pour l'évaluation de la performance de vos modèles est la MAE. C'est cette valeur qui servira à classer vos différentes tentatives sur la plateforme Kaggle. Notez que Kaggle découpe le jeu de données test en deux : public et privé. Le jeu de test public représente 30% du jeu de données test et sert à évaluer vos propositions en temps réel (à chaque soumission). Le classement final s'effectue lui sur les 70% du jeu de données test et n'est découvert qu'à la fin de la compétition. Vous n'avez aucun moyen de deviner ce découpage afin de prévenir tout sur-apprentissage. Néanmoins, l'augmentation (ou la baisse) de performance d'un nouveau modèle sur le jeu de données test public et très souvent un bon indicateur pour jauger les performances du modèle sur le jeu de données privé. Un autre moyen d'évaluer l'impact de nouvelles caractéristiques est de calculer la MAE moyenne sur le jeu de données d'apprentissage via une validation croisée.
+
+    Amélioration du modèle. Une fois un modèle soumis à la plateforme, plusieurs raffinements peuvent être envisagés pour améliorer ses performances :
+        Création ou suppression de caractéristiques : il s'agit souvent de la piste à privilégier pour augmenter significativement la qualité d'un modèle.
+        Optimisation des hyper-paramètres de l'algorithme d'apprentissage : une fois toutes les pistes de création de caractéristiques envisagées (ou lorsque la fin du projet approchera), cette technique peut s'avérer utile. En effet, tous les algorithmes d'apprentissage sont paramétrables. Les valeurs de ces paramètres peuvent impacter les performances du modèle et sont dépendantes des données manipulées. Il peut alors être intéressant de chercher les meilleures valeurs de ces paramètres pour booster la performance de votre modèle. C'est ce que l'on appelle l'étape d'optimisation des hyper-paramètres. Plusieurs stratégies existent (et sont implémentées dans Python). Vous trouverez une liste exhaustive de ces stratégies ici : https://en.wikipedia.org/wiki/Hyperparameter_optimization. Cette étape est facultative dans votre projet. Vous êtes néanmoins libres de la réaliser pour satisfaire votre curiosité.
+
+Evaluation metric
+
+To evaluate the models, the MAE metric will be used. Note that this metric should be minimized
+Submission format
+
+The submission format is:
+
+id,predicted
+id_1,prediction_1
+id_2,prediction_2
+...
+id_n,prediction_n
+
+id_i is the value of the attribute id and prediction_i is the value of the attribute ups (the output of your model). Both values are comma separated.
+The header id,predicted must appear in your submission file!!
+Version française
+Métrique
+
+La métrique qui servira à évaluer vos propositions est la MAE. Attention, cette métrique est à minimiser !!
+Format de soumission
+
+Le format de soumission est :
+
+id,predicted
+id_1,prediction_1
+id_2,prediction_2
+...
+id_n,prediction_n
+
+id_i correspond à la valeur de l'attribut id et prediction_i est la valeur de l'attribut ups retournée par votre modèle. Les deux champs sont séparés par le caractère ,. Attention, ce fichier contient obligatoirement l'entête id,predicted !!
+
+
+Dataset Description
+
+The data you will be handling in this project comes from the Reddit website. A description of the Reddit platform and associated concepts can be found on the Reddit Wikipedia page (https://fr.wikipedia.org/wiki/Reddit). More specifically, this dataset contains all comments on the AskReddit subreddit published on the platform during May 2015.
+comments_students.csv
+
+The only file is comments_students.csv. It contains one comment per line. Each comment is described with the following 10 attributes:
+
+    created_utc: The time of creation in UTC epoch-second format. Note that neither of these ever have a non-zero fraction.
+    ups: The score of the comment. _ It is the attribute to be predicted._
+    subreddit_id: The id of the subreddit in which the thing is located
+    link_id: ID of the link this comment is in
+    name: Fullname of comment, e.g.\t1_c3v7f8u"
+    subreddit: Subreddit of thing excluding the /r/ prex. \pics"
+    id: This item's identifier, e.g. \8xwlg"
+    author: The account name of the poster
+    body: The raw text, this is the unformatted text which includes the raw markup characters such as ** for bold. (<, >, and & are escaped)
+    parent_id: ID of the thing this comment is a reply to, either the link or comment in it
+
+The comments where ups=np.NaN are the comments in the test set. The other comments are in the training set.
+Files
+
+1 files Size 1.04 GB Type csv
+
+Utilisation de resources externes
+
+L'utilisation de resources externes (par exemple Wikipedia) pour apprendre votre modèle est autorisée. Bien évidemment, il est formellement interdit de télécharger l'intégralité du jeu de données manipulé dans cette compétition et de l'utiliser dans votre modèle. Toute violation de cette règle équivaudra à un 0 comme note sur ce challenge.
+Évaluation
+
+La note délivrée sera sur 100 points. Chaque équipe devra fournir :
+
+    (Au moins) une soumission sur la page de la compétition. 20 points seront alloués en fonction du score et de votre classement dans la compétition (pour peu que le résultat soit reproductible)
+    Une archive zip contenant votre code commenté (celui qui est à l'origine de votre score sur le leaderboard), d'éventuelles analyses préliminaires ainsi que les éventuelles données externes que vous avez manipulés devra être envoyé à l'équipe pédagogique. Le nom de l'archive devra être le nom de votre équipe. Nous évaluerons votre code et donc la qualité de votre approche sur 60 points. Sur ces 60 points, 30 points seront dédiés à la qualité de l'approche d'un point de vue text mining et les 30 autres points seront dédiés à la qualité de l'approche d'un point de vue network mining. Le code devra être aussi commenté que possible. L'archive devra obligatoirement contenir un fichier README.txt qui expliquera comment lancer votre code. Nous nous fierons exclusivement à ces instructions pour lancer votre code et évaluer votre performance. Si les instructions ne sont pas claires, le code incomplet, ou s'il manque des données externes dans l'archive, nous considèrerons votre soumission comme nulle (donc avec une note de 0/30 pour la première partie). Même si Python est le langage de programmation à privilégier, vous êtes libre de choisir un autre langage de programmation.
+    20 points seront finalement alloués à l'organisation de votre code ainsi qu'à sa clarté.
+
+Enfin, le jeu de test a été aléatoirement divisé en public et privé. Lorsque vous soumettrez un run à la plateforme, le score obtenu sera basé sur la partie publique du jeu de test (30% du jeu de test). Par contre, le classement final sera établi sur la partie privée du jeu de test. 

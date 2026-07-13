@@ -1,0 +1,60 @@
+# Configuration par défaut du pipeline Défi IA 2020.
+# Piloté par src/defia/config.py ; surchargeable par expérience (copier ce fichier).
+
+seed: 42
+
+paths:
+  raw_csv: data/raw/comments_students.csv
+  interim: data/interim
+  processed: data/processed
+  models: models
+  submissions: submissions
+  reports: reports
+
+data:
+  target: ups
+  id_col: id
+  group_col: link_id          # regroupement CV (thread)
+  test_is_null_target: true   # ups == NaN  ->  test
+
+cv:
+  scheme: group_kfold
+  n_splits: 5
+  group: link_id
+
+features:
+  network: true               # timing, arbre de réponses, auteur, graphe
+  stylometric: true           # longueurs, ponctuation, majuscules, markdown
+  sentiment: true             # VADER
+  tfidf:
+    enabled: true
+    max_features: 200000
+    word_ngram: [1, 2]
+    char_ngram: [3, 5]
+    svd_components: 128        # réduction pour injection GBM
+  embeddings:
+    enabled: false            # étape C (GPU) — activer selon l'environnement
+    model: intfloat/e5-base-v2
+    batch_size: 256
+
+model:
+  gbm:
+    lib: lightgbm             # lightgbm | catboost
+    objective: mae            # mae | huber | quantile
+    learning_rate: 0.05
+    num_leaves: 255
+    n_estimators: 3000
+    early_stopping_rounds: 200
+  transformer:
+    enabled: false            # étape D (GPU)
+    base_model: answerdotai/ModernBERT-base
+    loss: huber
+    max_length: 256
+    epochs: 2
+    batch_size: 32
+    fp16: true
+
+target_transform: none        # none | log1p  (MAE toujours évaluée en espace original)
+
+blend:
+  method: ridge               # ridge | lgbm | nnls

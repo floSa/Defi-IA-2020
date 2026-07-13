@@ -1,0 +1,8 @@
+# Étapes C/D — embeddings de phrase + fine-tuning transformer (GPU)
+# À installer sur le desktop 4060 Ti / Kaggle / Colab, PAS sur le laptop CPU.
+# Installer torch séparément selon la CUDA de la machine (https://pytorch.org).
+torch>=2.2
+transformers>=4.44
+sentence-transformers>=3.0
+accelerate>=0.33
+datasets>=2.20
