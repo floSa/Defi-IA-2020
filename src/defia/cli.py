@@ -195,6 +195,32 @@ def features(config: str, chunk: int, sentiment) -> None:
         click.echo(f"[features] écrit {out} ({offset:,} lignes)")
 
 
+@main.command("author-encoding")
+@click.option("--config", default="configs/default.yaml")
+@click.option("--smoothing", default=20.0)
+def author_encoding(config: str, smoothing: float) -> None:
+    """Target encoding auteur temporellement propre -> data/processed/{split}_author_enc.parquet."""
+    from defia.data.load import load_split
+    from defia.features.author_target import build_author_history_features
+
+    cfg = _cfg(config)
+    interim = cfg.resolve("interim")
+    processed = cfg.resolve("processed"); processed.mkdir(parents=True, exist_ok=True)
+    target = cfg["data"]["target"]
+
+    click.echo("[author-enc] chargement...")
+    tr = load_split(interim, "train", ["id", "author", "created_utc", target])
+    te = load_split(interim, "test", ["id", "author", "created_utc"])
+    tr_feat, te_feat = build_author_history_features(tr, te, target=target, smoothing=smoothing)
+    del tr, te
+
+    tr_feat.to_parquet(processed / "train_author_enc.parquet", compression="zstd", index=False)
+    te_feat.to_parquet(processed / "test_author_enc.parquet", compression="zstd", index=False)
+    click.echo(f"[author-enc] écrit train={len(tr_feat):,} test={len(te_feat):,} "
+               f"(smoothing={smoothing}); mean(author_hist_mean) train="
+               f"{tr_feat['author_hist_mean'].mean():.3f}")
+
+
 @main.command("train-gbm")
 @click.option("--config", default="configs/default.yaml")
 @click.option("--log-target/--no-log-target", default=None, help="Entraîner sur log1p(ups).")
@@ -222,6 +248,11 @@ def train_gbm(config: str, log_target, objective, tag: str) -> None:
     click.echo("[gbm] chargement des features...")
     tr = pd.read_parquet(processed / "train_features.parquet")
     te = pd.read_parquet(processed / "test_features.parquet")
+    ae_tr, ae_te = processed / "train_author_enc.parquet", processed / "test_author_enc.parquet"
+    if ae_tr.exists() and ae_te.exists():
+        tr = tr.merge(pd.read_parquet(ae_tr), on="id", how="left")
+        te = te.merge(pd.read_parquet(ae_te), on="id", how="left")
+        click.echo("[gbm] + author_hist_mean / author_hist_count_log (target encoding auteur)")
     cols = feature_columns(tr)
     click.echo(f"[gbm] {len(cols)} features, train={len(tr):,}, test={len(te):,}, "
                f"objective={gbm_cfg['objective']}, log_target={lt}")

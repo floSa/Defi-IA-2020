@@ -125,4 +125,21 @@ pendant ~1h30 sans qu'aucune vérification ne le détecte (cf. entrée précéde
 d'orchestration). Depuis : vérification systématique par `ps -eo pid,pcpu,pmem,rss,cmd` après
 tout lancement en arrière-plan, jamais par `pgrep` seul.
 
+### 2026-07-13 (suite) — Target encoding auteur (temporel, sans fuite)
+Nouveau module `features/author_target.py` : moyenne lissée (bayésienne, k=20) des `ups`
+antérieurs de l'auteur. TRAIN = expanding leave-one-out (strictement antérieur, exclut la ligne
+courante) ; TEST = agrégat complet du train par auteur (légitime, tout le train précède tout le
+test). Testé sur cas synthétique (assertions exactes) avant le run complet — contrairement à
+l'encodage naïf de Milestone A qui dégradait la MAE (13.25), celui-ci est temporellement propre.
+
+| Config | MAE holdout | Δ vs sans author-enc |
+|---|---|---|
+| GBM `mae` sans author-enc | 8.3946 | — |
+| **GBM `mae` + author_hist_mean/count** | **8.3559** | **-0.46%** (léger mais réel) |
+
+`author_hist_mean` (9e) et `author_hist_count_log` (12e) entrent dans le top 15 des importances,
+sans dominer — le signal de timing/thread reste prépondérant. Nouveau champion : **MAE 8.3559**.
+Commande : `make author-encoding` puis `make train-gbm` (merge automatique si les fichiers
+`*_author_enc.parquet` existent).
+
 <!-- Prochaines entrées ajoutées à chaque jalon : résultats MAE, choix, ablations. -->

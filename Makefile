@@ -34,6 +34,9 @@ baseline:
 features:
 	$(PY) -m defia.cli features --config $(CONFIG)
 
+author-encoding:
+	$(PY) -m defia.cli author-encoding --config $(CONFIG)
+
 train-gbm:
 	$(PY) -m defia.cli train-gbm --config $(CONFIG)
 
