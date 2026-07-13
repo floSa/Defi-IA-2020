@@ -44,7 +44,9 @@ import numpy as np
 import pandas as pd
 import torch
 
-MODEL_NAME = "answerdotai/ModernBERT-base"
+# DistilBERT : supporté par toute version de `transformers` (ModernBERT exige >=4.48, absent sur
+# l'image Kaggle). Petit, rapide, robuste — le bon compromis pour un run GPU fiable cette nuit.
+MODEL_NAME = "distilbert-base-uncased"
 MAX_LENGTH = 96
 BATCH_SIZE = 64
 EPOCHS = 1
