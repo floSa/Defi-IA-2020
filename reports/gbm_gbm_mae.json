@@ -1,0 +1,33 @@
+{
+  "objective": "mae",
+  "log_target": false,
+  "best_iter": 714,
+  "holdout": {
+    "mae": 8.394628027956644,
+    "mae_baseline": 11.907397094794018,
+    "gain_abs": 3.5127690668373734,
+    "gain_rel": 0.2950072999894474
+  },
+  "top_features": {
+    "thread_size": 1007240.6146335602,
+    "hour": 895065.259428978,
+    "pct_in_thread": 862463.1715607643,
+    "n_siblings": 759512.1677160263,
+    "sibling_rank": 714193.4266400337,
+    "rank_in_thread": 657598.9869441986,
+    "age_in_thread": 625715.9448027611,
+    "thread_n_authors": 580845.2897782326,
+    "n_children": 555336.1861810684,
+    "author_n_comments": 359689.7157611847,
+    "n_chars": 350187.8848261833,
+    "dow": 284351.6409101486,
+    "n_words": 220152.13000535965,
+    "depth": 174456.01960372925,
+    "n_question": 96812.11159467697,
+    "is_deleted_body": 85705.69367980957,
+    "avg_word_len": 85313.32180786133,
+    "uppercase_ratio": 77367.11465263367,
+    "has_children": 68213.97181558609,
+    "n_sentences": 50291.48467206955
+  }
+}

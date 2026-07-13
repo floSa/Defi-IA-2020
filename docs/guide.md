@@ -82,4 +82,29 @@ make submit              # submissions/submission.csv (id,predicted)
   dégrade → prévoir lissage bayésien + passé seulement.
 - Première soumission (format `id,predicted`, médiane=1) : `submissions/submission_baseline_median.csv`.
 
+### 2026-07-13 (suite) — Milestone B : features réseau/texte + LightGBM
+- **Incident infra** : build features initial en un bloc → OOM (WSL ~7,4 Go). Corrigé en deux temps :
+  (1) `structural.py` refondu pour factoriser tout de suite les strings en codes entiers
+  (`link_code`/`author_code`), matrice purement numérique ; écrit une fois sur disque
+  (`_struct.parquet`) et libéré avant la stylométrie (les deux pics mémoire ne se chevauchent
+  plus). (2) `features` en streaming chunké (parquet `iter_batches`) avec VADER mis en cache
+  module-level. Un bug `click.echo(..., flush=True)` (argument invalide) a aussi fait planter un
+  run et a été pris à tort pour un problème mémoire — corrigé.
+- **Incident orchestration** : un job d'entraînement enchaîné en arrière-plan est mort
+  silencieusement (probable coupure d'interop WSL passagère) sans qu'aucun mécanisme ne le
+  détecte pendant ~1h30. Leçon : après tout lancement `run_in_background`, **vérifier activement**
+  qu'un vrai PID consomme CPU/RAM (`ps -eo pid,pcpu,pmem,rss,cmd`), ne jamais se fier à un
+  `pgrep` qui peut matcher la commande de lancement elle-même.
+- **Features construites** : 38 colonnes (18 réseau/structurelles + ~20 stylométrie/sentiment
+  VADER), `data/processed/{train,test}_features.parquet`.
+- **Premier modèle LightGBM** (objectif `mae`, holdout temporel 7 jours) :
+  **MAE = 8.3946** (baseline médiane 11.907, gain **+29.5 %**), best_iter=714.
+  → **Dans la zone historique 8–11 dès le premier modèle**, sans encore embeddings/transformer.
+- **Importances (top 9/15 = features réseau)** : `thread_size`, `hour`, `pct_in_thread`,
+  `n_siblings`, `sibling_rank`, `rank_in_thread`, `age_in_thread`, `thread_n_authors`,
+  `n_children` dominent très largement `n_chars`/`n_words` (texte). Confirme l'hypothèse EDA :
+  le **network mining porte l'essentiel du signal** à ce stade ; le texte stylométrique est
+  secondaire — le gain texte attendu viendra des embeddings/transformer (étapes C/D).
+- Soumission : `submissions/submission_gbm_mae.csv`. Rapport : `reports/gbm_gbm_mae.json`.
+
 <!-- Prochaines entrées ajoutées à chaque jalon : résultats MAE, choix, ablations. -->

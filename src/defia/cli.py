@@ -119,18 +119,142 @@ def baseline(config: str) -> None:
 
 @main.command()
 @click.option("--config", default="configs/default.yaml")
-def features(config: str) -> None:
-    """Construit les matrices de features (réseau + texte)."""
-    _cfg(config)
-    raise SystemExit("Étape 'features' à implémenter après validation du plan (docs/plan.md).")
+@click.option("--chunk", default=300_000, help="Taille de chunk pour la stylométrie (mémoire).")
+@click.option("--sentiment/--no-sentiment", default=None, help="Force VADER on/off (surcharge config).")
+def features(config: str, chunk: int, sentiment) -> None:
+    """Construit les matrices de features (réseau + texte) -> data/processed/{split}_features.parquet.
+
+    Streaming mémoire-léger (WSL ~7 Go) : structural calculé une fois sur l'union train+test
+    (l'ordre concat(train,test) est préservé => alignement positionnel avec ``struct``), puis
+    stylométrie par chunks avec écriture parquet incrémentale.
+    """
+    import numpy as np
+    import pandas as pd
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from defia.data.load import load_split
+    from defia.features.structural import build_structural_features
+    from defia.features.stylometric import build_stylometric_features
+
+    import gc
+
+    cfg = _cfg(config)
+    interim = cfg.resolve("interim")
+    processed = cfg.resolve("processed"); processed.mkdir(parents=True, exist_ok=True)
+    with_sent = bool(cfg["features"].get("sentiment", True)) if sentiment is None else sentiment
+    target = cfg["data"]["target"]
+    struct_path = processed / "_struct.parquet"
+
+    # 1) Structural sur l'UNION (transductif, sans label). union = concat(train, test) => train d'abord.
+    #    Écrit sur disque puis libéré : son pic mémoire ne chevauche pas celui de la stylométrie.
+    scols = ["id", "created_utc", "link_id", "name", "author", "parent_id"]
+    n_train = load_split(interim, "train", ["id"]).shape[0]
+    if not struct_path.exists():
+        click.echo("[features] structural (union train+test)...")
+        tr = load_split(interim, "train", scols)
+        te = load_split(interim, "test", scols)
+        union = pd.concat([tr, te], ignore_index=True)
+        del tr, te; gc.collect()
+        struct = build_structural_features(union)
+        struct["created_utc"] = union["created_utc"].to_numpy()
+        del union; gc.collect()
+        struct.to_parquet(struct_path, compression="zstd", index=False)
+        click.echo(f"[features] structural écrit ({struct.shape[1]} col x {len(struct):,}) -> {struct_path}")
+        del struct; gc.collect()
+    else:
+        click.echo(f"[features] structural déjà présent ({struct_path}), réutilisé.")
+
+    # 2) Stylométrie par split, en chunks, alignée positionnellement sur struct (relu du disque)
+    struct = pd.read_parquet(struct_path)
+    bases = {"train": 0, "test": n_train}
+    for split in ("train", "test"):
+        base = bases[split]
+        ups = (load_split(interim, "train", [target])[target].to_numpy()
+               if split == "train" else None)
+        pf = pq.ParquetFile(interim / f"{split}.parquet")
+        out = processed / f"{split}_features.parquet"
+        writer = None; offset = 0
+        click.echo(f"[features] stylométrie {split} (sentiment={with_sent}, chunk={chunk:,})...")
+        for batch in pf.iter_batches(batch_size=chunk, columns=["id", "body"]):
+            b = batch.to_pandas()
+            m = len(b)
+            sty = build_stylometric_features(b, with_sentiment=with_sent)
+            ssub = struct.iloc[base + offset: base + offset + m].reset_index(drop=True)
+            assert (ssub["id"].to_numpy() == sty["id"].to_numpy()).all(), "désalignement id!"
+            feat = pd.concat([ssub, sty.drop(columns="id")], axis=1)
+            if ups is not None:
+                feat[target] = ups[offset: offset + m]
+            tbl = pa.Table.from_pandas(feat, preserve_index=False)
+            if writer is None:
+                writer = pq.ParquetWriter(out, tbl.schema, compression="zstd")
+            writer.write_table(tbl)
+            offset += m
+            click.echo(f"    {split}: {offset:,} lignes")
+        writer.close()
+        click.echo(f"[features] écrit {out} ({offset:,} lignes)")
 
 
 @main.command("train-gbm")
 @click.option("--config", default="configs/default.yaml")
-def train_gbm(config: str) -> None:
-    """Entraîne le GBM (objectif MAE) en GroupKFold thread."""
-    _cfg(config)
-    raise SystemExit("Étape 'train-gbm' à implémenter après validation du plan.")
+@click.option("--log-target/--no-log-target", default=None, help="Entraîner sur log1p(ups).")
+@click.option("--objective", default=None, help="mae | huber | quantile (surcharge la config).")
+@click.option("--tag", default="gbm", help="Nom de la soumission/artefacts.")
+def train_gbm(config: str, log_target, objective, tag: str) -> None:
+    """Entraîne LightGBM (objectif MAE) — holdout temporel + soumission test."""
+    import json
+
+    import numpy as np
+    import pandas as pd
+
+    from defia.evaluation.cv import temporal_holdout_indices
+    from defia.evaluation.metrics import mae, mae_report
+    from defia.models.gbm import feature_columns, fit_predict, lgb_params, train_full_predict
+
+    cfg = _cfg(config)
+    processed = cfg.resolve("processed")
+    val_days = int(cfg["cv"].get("val_days", 7))
+    gbm_cfg = dict(cfg["model"]["gbm"])
+    if objective:
+        gbm_cfg["objective"] = objective
+    lt = bool(cfg.get("target_transform") == "log1p") if log_target is None else log_target
+
+    click.echo("[gbm] chargement des features...")
+    tr = pd.read_parquet(processed / "train_features.parquet")
+    te = pd.read_parquet(processed / "test_features.parquet")
+    cols = feature_columns(tr)
+    click.echo(f"[gbm] {len(cols)} features, train={len(tr):,}, test={len(te):,}, "
+               f"objective={gbm_cfg['objective']}, log_target={lt}")
+
+    # --- Holdout temporel (juge de paix) ---
+    fit_idx, val_idx = temporal_holdout_indices(tr["created_utc"].to_numpy(), val_days)
+    df_fit, df_val = tr.iloc[fit_idx], tr.iloc[val_idx]
+    params = lgb_params(gbm_cfg, cfg.seed)
+    val_pred, _, model, best = fit_predict(
+        df_fit, df_val, None, cols, "ups", params,
+        early_stopping_rounds=int(gbm_cfg.get("early_stopping_rounds", 200)), log_target=lt)
+    rep = mae_report(df_val["ups"].to_numpy(), val_pred, baseline_value=1.0)
+    click.echo(f"\n[gbm] HOLDOUT TEMPOREL — MAE={rep['mae']:.4f} "
+               f"(baseline médiane {rep['mae_baseline']:.4f}, gain {rep['gain_rel']:+.1%}), "
+               f"best_iter={best}")
+
+    # Importances (top 15)
+    imp = pd.Series(model.feature_importance(importance_type="gain"), index=cols).sort_values(ascending=False)
+    click.echo("[gbm] top features (gain):\n" + imp.head(15).to_string())
+
+    # --- Soumission : ré-entraînement sur tout le train, prédiction test ---
+    test_pred, _ = train_full_predict(tr, te, cols, "ups", params, best, log_target=lt)
+    test_pred = np.clip(test_pred, -50, None)  # bornes douces (ups peut être négatif)
+    subs = cfg.resolve("submissions"); subs.mkdir(parents=True, exist_ok=True)
+    out = subs / f"submission_{tag}.csv"
+    pd.DataFrame({"id": te["id"], "predicted": test_pred}).to_csv(out, index=False)
+    click.echo(f"[gbm] submission -> {out}")
+
+    reports = cfg.resolve("reports"); reports.mkdir(parents=True, exist_ok=True)
+    (reports / f"gbm_{tag}.json").write_text(json.dumps({
+        "objective": gbm_cfg["objective"], "log_target": lt, "best_iter": int(best),
+        "holdout": rep, "top_features": imp.head(20).to_dict(),
+    }, indent=2), encoding="utf-8")
 
 
 @main.command()
