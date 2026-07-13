@@ -23,14 +23,22 @@ from sklearn.decomposition import TruncatedSVD
 MODEL_NAME = "intfloat/e5-small-v2"   # petit, rapide, bon compromis MTEB (2024)
 N_COMPONENTS = 64
 SAMPLE_SIZE = 200_000
-BATCH_SIZE = 512
+BATCH_SIZE = 256
 SEED = 42
-
-INPUT_DIR = next(
-    (d for d in glob.glob("/kaggle/input/*") if os.path.exists(os.path.join(d, "train.parquet"))),
-    "/kaggle/input/defia-reddit-text",
-)
+DEVICE = "cpu"   # e5-small suffit en CPU (~2h pour 4,2M) ; évite la loterie GPU P100/T4 sur Kaggle
 OUT_DIR = "/kaggle/working"
+
+
+def find_input_dir() -> str:
+    """Localise le dossier contenant train.parquet sous /kaggle/input (recherche récursive)."""
+    print("[kernel] contenu de /kaggle/input :")
+    for root, dirs, files in os.walk("/kaggle/input"):
+        for f in files:
+            print("   ", os.path.join(root, f))
+    hits = glob.glob("/kaggle/input/**/train.parquet", recursive=True)
+    if not hits:
+        raise FileNotFoundError("train.parquet introuvable sous /kaggle/input (dataset non attaché ?)")
+    return os.path.dirname(hits[0])
 
 
 def load_texts(path: str) -> pd.DataFrame:
@@ -49,11 +57,12 @@ def encode(model: SentenceTransformer, texts: list[str]) -> np.ndarray:
 
 
 def main() -> None:
-    print(f"[kernel] modèle={MODEL_NAME} device=cuda si dispo")
-    model = SentenceTransformer(MODEL_NAME, device="cuda")
+    input_dir = find_input_dir()
+    print(f"[kernel] input_dir={input_dir} modèle={MODEL_NAME} device={DEVICE}")
+    model = SentenceTransformer(MODEL_NAME, device=DEVICE)
 
-    train_path = os.path.join(INPUT_DIR, "train.parquet")
-    test_path = os.path.join(INPUT_DIR, "test.parquet")
+    train_path = os.path.join(input_dir, "train.parquet")
+    test_path = os.path.join(input_dir, "test.parquet")
 
     print("[kernel] échantillon pour ajuster la SVD...")
     tr_sample = load_texts(train_path).sample(n=SAMPLE_SIZE, random_state=SEED)

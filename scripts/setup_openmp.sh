@@ -11,6 +11,6 @@ echo "symlink: $LIBS_DIR/libgomp.so.1 -> $GOMP"
 
 # Rend LD_LIBRARY_PATH persistant à l'activation du venv (idempotent)
 ACT=.venv/bin/activate
-LINE="export LD_LIBRARY_PATH=\"$LIBS_DIR:\$LD_LIBRARY_PATH\""
+LINE="export LD_LIBRARY_PATH=\"$LIBS_DIR:\${LD_LIBRARY_PATH:-}\""
 grep -qF "$LIBS_DIR" "$ACT" || echo "$LINE" >> "$ACT"
 echo "activate patché."
