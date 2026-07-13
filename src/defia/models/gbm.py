@@ -4,13 +4,23 @@ Entraîné avec un objectif adapté à la MAE (``mae`` L1, ``huber`` ou ``quanti
 Évaluation de référence = **holdout temporel** (7 derniers jours) ; la soumission test est
 produite en ré-entraînant sur tout le train avec le nombre d'arbres optimal trouvé.
 
-Option ``log_target`` : entraîner sur ``log1p(ups)`` puis ``expm1`` — la médiane est préservée
-par la transformation monotone, et pour une cible très asymétrique cela donne souvent une MAE
-plus basse en espace original. On compare empiriquement.
+Option ``log_target`` : entraîner sur un **log signé** ``sign(y)*log1p(|y|)`` puis la
+transformation inverse — la médiane est préservée par la monotonie, et ``ups`` pouvant être
+négatif (min observé -333, cf. docs/eda_findings.md), un ``log1p`` non signé produirait des NaN.
+On compare empiriquement au MAE direct (résultat : MAE direct gagne largement ici, cf.
+docs/guide.md — la cible se comporte mieux avec une perte L1 pure qu'après compression log).
 """
 from __future__ import annotations
 
 import numpy as np
+
+
+def _signed_log1p(y: np.ndarray) -> np.ndarray:
+    return np.sign(y) * np.log1p(np.abs(y))
+
+
+def _signed_expm1(t: np.ndarray) -> np.ndarray:
+    return np.sign(t) * np.expm1(np.abs(t))
 
 # Colonnes méta (jamais des features du modèle) : ids, codes de groupe, cible.
 META_COLS = {"id", "created_utc", "link_id", "link_code", "author_code", "author_name", "ups"}
@@ -44,8 +54,8 @@ def fit_predict(
     Xf, Xv = _prepare_X(df_fit, cols), _prepare_X(df_val, cols)
     yf = df_fit[y_col].to_numpy(dtype=float)
     yv = df_val[y_col].to_numpy(dtype=float)
-    tf = np.log1p(yf) if log_target else yf
-    tv = np.log1p(yv) if log_target else yv
+    tf = _signed_log1p(yf) if log_target else yf
+    tv = _signed_log1p(yv) if log_target else yv
 
     cat = [c for c in CATEGORICAL if c in cols]
     dtrain = lgb.Dataset(Xf, label=tf, categorical_feature=cat, free_raw_data=False)
@@ -61,8 +71,7 @@ def fit_predict(
 
     def _predict(X):
         p = model.predict(X, num_iteration=best)
-        p = np.expm1(p) if log_target else p
-        return np.clip(p, a_min=None, a_max=None)
+        return _signed_expm1(p) if log_target else p
 
     val_pred = _predict(Xv)
     test_pred = _predict(_prepare_X(df_test, cols)) if df_test is not None else None
@@ -75,13 +84,13 @@ def train_full_predict(df_all, df_test, cols, y_col, params, num_rounds, log_tar
 
     X = _prepare_X(df_all, cols)
     y = df_all[y_col].to_numpy(dtype=float)
-    t = np.log1p(y) if log_target else y
+    t = _signed_log1p(y) if log_target else y
     cat = [c for c in CATEGORICAL if c in cols]
     dtrain = lgb.Dataset(X, label=t, categorical_feature=cat)
     p = dict(params); p.pop("num_iterations", None)
     model = lgb.train(p, dtrain, num_boost_round=int(num_rounds))
     pred = model.predict(_prepare_X(df_test, cols))
-    return (np.expm1(pred) if log_target else pred), model
+    return (_signed_expm1(pred) if log_target else pred), model
 
 
 def lgb_params(cfg_gbm: dict, seed: int) -> dict:

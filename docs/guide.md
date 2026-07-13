@@ -107,4 +107,22 @@ make submit              # submissions/submission.csv (id,predicted)
   secondaire — le gain texte attendu viendra des embeddings/transformer (étapes C/D).
 - Soumission : `submissions/submission_gbm_mae.csv`. Rapport : `reports/gbm_gbm_mae.json`.
 
+### 2026-07-13 (suite) — Ablation objectif LightGBM
+| Config | MAE holdout | vs baseline (11.907) |
+|---|---|---|
+| **`mae` (L1), espace direct** | **8.3946** ← champion | +29.5% |
+| `huber` | 10.4592 (n'avait pas convergé à 3000 itér.) | +12.2% |
+| `mae` + `log1p(target)` | 11.8891 (cassé) | +0.2% |
+
+Le `log1p` non signé cassait sur `ups` négatifs (min -333) → NaN, quasi aucun apprentissage
+(best_iter=1). Corrigé en **log signé** (`sign(y)·log1p(|y|)`) dans `gbm.py`, réutilisable plus
+tard mais pas prioritaire : **l'objectif `mae` brut domine largement** — la cible en queue lourde
+se comporte mieux avec une perte L1 pure qu'après compression log ou Huber (à ce budget
+d'itérations). On garde `mae` comme configuration de référence pour la suite.
+
+**Incident process (transparence)** : un job d'entraînement enchaîné a tourné dans le vide
+pendant ~1h30 sans qu'aucune vérification ne le détecte (cf. entrée précédente sur l'incident
+d'orchestration). Depuis : vérification systématique par `ps -eo pid,pcpu,pmem,rss,cmd` après
+tout lancement en arrière-plan, jamais par `pgrep` seul.
+
 <!-- Prochaines entrées ajoutées à chaque jalon : résultats MAE, choix, ablations. -->
