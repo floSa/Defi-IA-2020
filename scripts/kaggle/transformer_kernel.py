@@ -23,6 +23,23 @@ import json
 import os
 import sys
 
+# --- Fix GPU Pascal (P100, sm_60) : le torch pré-installé Kaggle ne supporte que sm_70+.
+#     On installe un torch PyPI (qui, lui, supporte sm_60) et on ré-exécute le script. ---
+if os.environ.get("TORCH_FIXED") != "1":
+    try:
+        import torch as _t
+        _cap = _t.cuda.get_device_capability() if _t.cuda.is_available() else (99, 0)
+    except Exception:  # noqa: BLE001
+        _cap = (0, 0)
+    if _cap[0] < 7:
+        print(f"[kernel] GPU sm_{_cap[0]}{_cap[1]} incompatible avec le torch Kaggle "
+              f"-> installation d'un torch PyPI compatible Pascal...", flush=True)
+        os.system(f"{sys.executable} -m pip install -q --upgrade "
+                  f"torch==2.4.1 --index-url https://download.pytorch.org/whl/cu121")
+        os.environ["TORCH_FIXED"] = "1"
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    os.environ["TORCH_FIXED"] = "1"
+
 import numpy as np
 import pandas as pd
 import torch
