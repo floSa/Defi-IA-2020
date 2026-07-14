@@ -346,7 +346,8 @@ def tfidf_features(config: str, chunk: int, sample_size: int) -> None:
 @click.option("--objective", default=None, help="mae | huber | quantile (surcharge la config).")
 @click.option("--tag", default="gbm", help="Nom de la soumission/artefacts.")
 @click.option("--eval-only", is_flag=True, help="Mesure la MAE holdout puis s'arrête (itération rapide).")
-def train_gbm(config: str, log_target, objective, tag: str, eval_only: bool) -> None:
+@click.option("--sample", default=0, type=int, help="Sous-échantillonne le fit à N lignes (itération rapide).")
+def train_gbm(config: str, log_target, objective, tag: str, eval_only: bool, sample: int) -> None:
     """Entraîne LightGBM (objectif MAE) — holdout temporel + soumission test."""
     import json
 
@@ -397,7 +398,13 @@ def train_gbm(config: str, log_target, objective, tag: str, eval_only: bool) -> 
 
     # --- Holdout temporel (juge de paix) ---
     fit_idx, val_idx = temporal_holdout_indices(tr["created_utc"].to_numpy(), val_days)
-    df_fit, df_val = tr.iloc[fit_idx], tr.iloc[val_idx]
+    if sample and sample < len(fit_idx):  # sous-échantillonne le fit pour itérer vite (val complet)
+        rng = np.random.default_rng(cfg.seed)
+        fit_idx = np.sort(rng.choice(fit_idx, size=sample, replace=False))
+        click.echo(f"[gbm] fit sous-échantillonné à {sample:,} lignes (itération rapide)")
+    df_fit, df_val = tr.iloc[fit_idx].copy(), tr.iloc[val_idx].copy()
+    if eval_only:  # en éval, on n'a plus besoin du gros DataFrame -> libère la mémoire
+        del tr; import gc; gc.collect()
     params = lgb_params(gbm_cfg, cfg.seed)
     val_pred, _, model, best = fit_predict(
         df_fit, df_val, None, cols, "ups", params,
