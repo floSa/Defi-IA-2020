@@ -263,6 +263,26 @@ def author_dynamics(config: str, smoothing: float) -> None:
     click.echo(f"[author-dyn] écrit {d_tr.shape[1]-1} features x train={len(d_tr):,} test={len(d_te):,}")
 
 
+@main.command("parent-enc")
+@click.option("--config", default="configs/default.yaml")
+def parent_enc(config: str) -> None:
+    """Encodage du contexte parent (parent_ups + réputation de l'auteur du parent)."""
+    from defia.data.load import load_split
+    from defia.features.parent_enc import build_parent_encoding
+
+    cfg = _cfg(config)
+    interim = cfg.resolve("interim")
+    processed = cfg.resolve("processed"); processed.mkdir(parents=True, exist_ok=True)
+    target = cfg["data"]["target"]
+    cols = ["id", "name", "author", "parent_id", "created_utc"]
+    tr = load_split(interim, "train", cols + [target])
+    te = load_split(interim, "test", cols)
+    p_tr, p_te = build_parent_encoding(tr, te, target=target)
+    p_tr.to_parquet(processed / "train_parentenc.parquet", compression="zstd", index=False)
+    p_te.to_parquet(processed / "test_parentenc.parquet", compression="zstd", index=False)
+    click.echo(f"[parent-enc] écrit {p_tr.shape[1]-1} features x train={len(p_tr):,} test={len(p_te):,}")
+
+
 @main.command("kaggle-export")
 @click.option("--config", default="configs/default.yaml")
 @click.option("--out", default="scripts/kaggle/dataset", help="Dossier de sortie pour le dataset Kaggle.")
@@ -347,7 +367,10 @@ def tfidf_features(config: str, chunk: int, sample_size: int) -> None:
 @click.option("--tag", default="gbm", help="Nom de la soumission/artefacts.")
 @click.option("--eval-only", is_flag=True, help="Mesure la MAE holdout puis s'arrête (itération rapide).")
 @click.option("--sample", default=0, type=int, help="Sous-échantillonne le fit à N lignes (itération rapide).")
-def train_gbm(config: str, log_target, objective, tag: str, eval_only: bool, sample: int) -> None:
+@click.option("--lr", default=0.0, type=float, help="Override learning_rate (0 = config).")
+@click.option("--rounds", default=0, type=int, help="Override n_estimators (0 = config).")
+def train_gbm(config: str, log_target, objective, tag: str, eval_only: bool, sample: int,
+              lr: float, rounds: int) -> None:
     """Entraîne LightGBM (objectif MAE) — holdout temporel + soumission test."""
     import json
 
@@ -364,6 +387,10 @@ def train_gbm(config: str, log_target, objective, tag: str, eval_only: bool, sam
     gbm_cfg = dict(cfg["model"]["gbm"])
     if objective:
         gbm_cfg["objective"] = objective
+    if lr:
+        gbm_cfg["learning_rate"] = lr
+    if rounds:
+        gbm_cfg["n_estimators"] = rounds
     lt = bool(cfg.get("target_transform") == "log1p") if log_target is None else log_target
 
     click.echo("[gbm] chargement des features...")
@@ -386,6 +413,7 @@ def train_gbm(config: str, log_target, objective, tag: str, eval_only: bool, sam
         click.echo("[gbm] + emb_* (embeddings de phrase, Kaggle GPU)")
     for name, label in [("context", "contexte (parent, vélocité, dynamique intra-fil)"),
                         ("author_dyn", "dynamique auteur (mean/std/max/viral/down)"),
+                        ("parentenc", "encodage cible du parent (ups + réputation auteur parent)"),
                         ("graph", "embeddings de graphe node2vec")]:
         ptr, pte = processed / f"train_{name}.parquet", processed / f"test_{name}.parquet"
         if ptr.exists() and pte.exists():

@@ -12,16 +12,16 @@ from defia.evaluation.cv import temporal_holdout_indices
 from defia.evaluation.metrics import mae
 
 P = "data/processed"
+SAMPLE = 1_200_000  # sous-échantillonne le fit pour itérer vite (comparable aux runs GBM --sample)
 tr = pd.read_parquet(f"{P}/train_features.parquet")
-for name in ["author_enc", "context", "author_dyn", "graph"]:
-    for pref in ["train"]:
-        try:
-            tr = tr.merge(pd.read_parquet(f"{P}/{pref}_{name}.parquet"), on="id", how="left")
-        except FileNotFoundError:
-            pass
+for name in ["author_enc", "context", "author_dyn"]:  # graph abandonné (n'apporte rien)
+    try:
+        tr = tr.merge(pd.read_parquet(f"{P}/train_{name}.parquet"), on="id", how="left")
+    except FileNotFoundError:
+        pass
 print("features chargées:", tr.shape)
 
-CAT = [c for c in ["author_code", "link_code", "hour", "dow"] if c in tr.columns]
+CAT = [c for c in ["author_code", "hour", "dow"] if c in tr.columns]  # link_code retiré (OOM)
 DROP = {"id", "created_utc", "link_id", "author_name", "ups"}
 feat = [c for c in tr.columns if c not in DROP]
 for c in CAT:
@@ -32,14 +32,17 @@ for c in feat:
         tr[c] = tr[c].astype("int8")
 
 fit_idx, val_idx = temporal_holdout_indices(tr["created_utc"].to_numpy(), 7)
+rng = np.random.default_rng(42)
+if len(fit_idx) > SAMPLE:
+    fit_idx = np.sort(rng.choice(fit_idx, size=SAMPLE, replace=False))
 Xf, yf = tr.iloc[fit_idx][feat], tr.iloc[fit_idx]["ups"].to_numpy(float)
 Xv, yv = tr.iloc[val_idx][feat], tr.iloc[val_idx]["ups"].to_numpy(float)
 cat_idx = [feat.index(c) for c in CAT]
-print("cat_features:", CAT)
+print("cat_features:", CAT, "| fit:", len(fit_idx))
 
 t0 = time.time()
 model = CatBoostRegressor(
-    loss_function="MAE", iterations=1500, learning_rate=0.08, depth=8,
+    loss_function="MAE", iterations=800, learning_rate=0.1, depth=8,
     task_type="CPU", thread_count=-1, random_seed=42, verbose=200,
     l2_leaf_reg=3.0,
 )
