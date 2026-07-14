@@ -33,9 +33,11 @@ if os.environ.get("TORCH_FIXED") != "1":
         _cap = (0, 0)
     if _cap[0] < 7:
         print(f"[kernel] GPU sm_{_cap[0]}{_cap[1]} incompatible avec le torch Kaggle "
-              f"-> installation d'un torch PyPI compatible Pascal...", flush=True)
+              f"-> réinstallation torch+transformers cohérents (PyPI, supporte Pascal)...", flush=True)
+        # Réinstaller torch ET transformers/accelerate ENSEMBLE depuis PyPI (versions cohérentes) :
+        # réinstaller torch seul désaligne transformers (erreur 'Could not import module XxxModel').
         os.system(f"{sys.executable} -m pip install -q --upgrade "
-                  f"torch==2.4.1 --index-url https://download.pytorch.org/whl/cu121")
+                  f"torch transformers accelerate")
         os.environ["TORCH_FIXED"] = "1"
         os.execv(sys.executable, [sys.executable] + sys.argv)
     os.environ["TORCH_FIXED"] = "1"

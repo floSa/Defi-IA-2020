@@ -32,7 +32,7 @@ features:
     enabled: true
     n_features: 262144         # 2^18, espace de hashing (HashingVectorizer, stateless/mémoire-léger)
     word_ngram: [1, 2]
-    svd_components: 48         # réduction (TruncatedSVD) pour injection GBM (128 -> OOM sur WSL 7.4Go)
+    svd_components: 32         # réduction (TruncatedSVD) pour injection GBM (léger, WSL 7.4Go)
   embeddings:
     enabled: false            # étape C (GPU) — activer selon l'environnement
     model: intfloat/e5-base-v2
