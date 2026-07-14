@@ -15,8 +15,15 @@ import numpy as np
 import pandas as pd
 import lightgbm as lgb
 
-IN = next((d for d in glob.glob("/kaggle/input/*") if os.path.exists(os.path.join(d, "train_features.parquet"))),
-          "/kaggle/input/defia-features")
+def _find_input():
+    print("[kernel] /kaggle/input :", glob.glob("/kaggle/input/*"))
+    hits = glob.glob("/kaggle/input/**/train_features.parquet", recursive=True)
+    if not hits:
+        raise FileNotFoundError("train_features.parquet introuvable (dataset non attaché ?)")
+    return os.path.dirname(hits[0])
+
+
+IN = None  # résolu dans main() via _find_input()
 OUT = "/kaggle/working"
 VAL_DAYS = 7
 META = {"id", "created_utc", "link_id", "link_code", "author_code", "author_name", "ups"}
@@ -24,6 +31,10 @@ BLOCKS = ["author_enc", "tfidf", "context", "author_dyn", "parentenc", "interact
 
 
 def load(split):
+    global IN
+    if IN is None:
+        IN = _find_input()
+        print("[kernel] input_dir =", IN)
     df = pd.read_parquet(f"{IN}/{split}_features.parquet")
     for b in BLOCKS:
         p = f"{IN}/{split}_{b}.parquet"
