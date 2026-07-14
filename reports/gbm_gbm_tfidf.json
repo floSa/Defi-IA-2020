@@ -1,0 +1,33 @@
+{
+  "objective": "mae",
+  "log_target": false,
+  "best_iter": 2439,
+  "holdout": {
+    "mae": 8.284077583015366,
+    "mae_baseline": 11.907397094794018,
+    "gain_abs": 3.623319511778652,
+    "gain_rel": 0.30429148225541147
+  },
+  "top_features": {
+    "hour": 2018030.6603918076,
+    "pct_in_thread": 976361.2495856285,
+    "sibling_rank": 885899.1672439575,
+    "thread_size": 819756.3446135521,
+    "n_siblings": 769920.606189251,
+    "age_in_thread": 708886.7496972084,
+    "thread_n_authors": 674748.4154958725,
+    "rank_in_thread": 674259.3025178909,
+    "dow": 604747.8375167847,
+    "author_hist_count_log": 533059.1582169533,
+    "author_hist_mean": 523640.36908340454,
+    "n_children": 496084.154378891,
+    "n_chars": 318377.7578396797,
+    "depth": 247187.9416422844,
+    "author_n_comments": 205069.48481082916,
+    "tfidf_svd_16": 199269.04833221436,
+    "tfidf_svd_0": 168419.8431839943,
+    "uppercase_ratio": 166150.8798174858,
+    "tfidf_svd_11": 165514.5896077156,
+    "n_words": 163137.78411626816
+  }
+}

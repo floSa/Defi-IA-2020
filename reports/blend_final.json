@@ -1,0 +1,16 @@
+{
+  "models": [
+    "gbm_champion",
+    "gbm_tfidf"
+  ],
+  "weights": {
+    "gbm_champion": 0.12187836125208669,
+    "gbm_tfidf": 0.8781216387479134
+  },
+  "singles_mae": {
+    "gbm_champion": 8.355923669479733,
+    "gbm_tfidf": 8.284077583015366
+  },
+  "blend_mae": 8.282614413771523,
+  "best_single": 8.284077583015366
+}

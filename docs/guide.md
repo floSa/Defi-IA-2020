@@ -197,4 +197,17 @@ minutes, zéro friction) — les kernels/modules sont prêts et réutilisables. 
 cette nuit **avec les GBM seuls** (blend de variantes) pour livrer un pipeline complet de bout en
 bout ; le transformer sera intégré au blend demain.
 
+### 2026-07-14 — Milestone E : TF-IDF (gain), blend final, clôture
+- **TF-IDF fusionné** (HashingVectorizer word 1-2 + SVD 32d, sur CPU) → GBM `mae` à 72 features :
+  **MAE holdout = 8.2841** vs 8.3559 sans → **le signal texte lexical apporte +0.07 de MAE**
+  (nouveau meilleur modèle). Confirme que la stylométrie seule sous-exploitait le texte.
+- **Blend final** (poids optimisant la MAE) : gbm_tfidf 0.878 + gbm_champion 0.122 →
+  **MAE = 8.2826** (gain marginal, les 2 GBM sont corrélés). Soumission :
+  `submissions/submission_final.csv` (1 016 458 lignes, format OK, médiane 1.08, queue jusqu'à 4621).
+- Variante `quantile` abandonnée (MAE 8.356 ≈ champion, aucune diversité).
+- **GPU distant Kaggle : mur** ce soir — P100 sm_60 incompatible + réinstall torch casse
+  `transformers` + quota GPU (2 sessions max) saturé. Le transformer/embeddings tourneront sur
+  GPU récent quand dispo (code prêt). Rapport complet : `reports/rapport.md`.
+- **Bilan A→E : baseline 11.907 → 8.283 (−30.4 %)**, dans la zone historique 8–11.
+
 <!-- Prochaines entrées ajoutées à chaque jalon : résultats MAE, choix, ablations. -->
