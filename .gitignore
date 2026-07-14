@@ -39,9 +39,11 @@ dist/
 *.local
 kaggle.json
 
-# Export Kaggle (régénéré par `make kaggle-export`, ne pas committer)
+# Export Kaggle (régénéré, ne pas committer — gros parquets)
 scripts/kaggle/dataset/
+scripts/kaggle/features_dataset/
 scripts/kaggle/kernel-metadata.json
+scripts/kaggle/**/dataset-metadata.json
 
 # OS
 .DS_Store
