@@ -263,6 +263,25 @@ def author_dynamics(config: str, smoothing: float) -> None:
     click.echo(f"[author-dyn] écrit {d_tr.shape[1]-1} features x train={len(d_tr):,} test={len(d_te):,}")
 
 
+@main.command("interactions")
+@click.option("--config", default="configs/default.yaml")
+def interactions_cmd(config: str) -> None:
+    """Interactions non linéaires + encodage cyclique heure/jour -> *_interactions.parquet."""
+    import pandas as pd
+
+    from defia.features.interactions import build_interactions
+
+    cfg = _cfg(config)
+    processed = cfg.resolve("processed")
+    for split in ("train", "test"):
+        base = pd.read_parquet(processed / f"{split}_features.parquet", columns=["id", "hour", "dow", "n_chars", "depth"])
+        ctx = pd.read_parquet(processed / f"{split}_context.parquet")
+        adyn = pd.read_parquet(processed / f"{split}_author_dyn.parquet")
+        out = build_interactions(base, ctx, adyn)
+        out.to_parquet(processed / f"{split}_interactions.parquet", compression="zstd", index=False)
+        click.echo(f"[interactions] {split}: {out.shape[1]-1} features x {len(out):,}")
+
+
 @main.command("parent-enc")
 @click.option("--config", default="configs/default.yaml")
 def parent_enc(config: str) -> None:
@@ -413,7 +432,8 @@ def train_gbm(config: str, log_target, objective, tag: str, eval_only: bool, sam
         click.echo("[gbm] + emb_* (embeddings de phrase, Kaggle GPU)")
     for name, label in [("context", "contexte (parent, vélocité, dynamique intra-fil)"),
                         ("author_dyn", "dynamique auteur (mean/std/max/viral/down)"),
-                        ("parentenc", "encodage cible du parent (ups + réputation auteur parent)"),
+                        ("parentenc", "encodage cible du parent (réputation auteur parent)"),
+                        ("interactions", "interactions + encodage cyclique heure/jour"),
                         ("graph", "embeddings de graphe node2vec")]:
         ptr, pte = processed / f"train_{name}.parquet", processed / f"test_{name}.parquet"
         if ptr.exists() and pte.exists():
