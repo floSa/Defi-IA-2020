@@ -210,4 +210,18 @@ bout ; le transformer sera intégré au blend demain.
   GPU récent quand dispo (code prêt). Rapport complet : `reports/rapport.md`.
 - **Bilan A→E : baseline 11.907 → 8.283 (−30.4 %)**, dans la zone historique 8–11.
 
+### 2026-07-14 — Vitesse supérieure : feature engineering avancé (network mining sérieux)
+Recadrage Florian : les techniques étaient trop basiques. On empile des features avancées et on
+mesure chaque gain (holdout temporel, mode `--eval-only` pour itérer vite).
+- **Features de contexte** (`features/context.py`, 9 feats) : écart temporel à la réponse
+  (`time_gap_to_parent`), parent-carrefour (`parent_n_children`, `parent_rank`, `parent_depth`),
+  réponse à soi-même, **vélocité du thread**, position dans le cycle de vie du fil
+  (`arrival_frac`), **nb de commentaires déjà postés par l'auteur dans ce fil**.
+- **Dynamique d'auteur enrichie** (`features/author_target.py::build_author_dynamics`, 6 feats,
+  temporellement propre) : moyenne/écart-type/max/fraction virale/fraction downvote historiques.
+- **Résultat GBM 87 features : MAE = 8.2667** vs 8.284 (TF-IDF seul) → **+0.017**, +30.6 % vs
+  baseline. `author_prior_in_thread` et `n_children` (carrefour) rankent haut.
+- En cours : **node2vec** (embeddings du graphe auteur→auteur, `features/graph.py`) + **CatBoost**
+  (haute cardinalité native). Objectif : passer nettement sous 8.2.
+
 <!-- Prochaines entrées ajoutées à chaque jalon : résultats MAE, choix, ablations. -->
