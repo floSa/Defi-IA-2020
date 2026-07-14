@@ -39,10 +39,17 @@ historiques de la compétition : ~8 à 11.
 | GBM `huber` | 10.459 | +12.2 % |
 | GBM `mae` — réseau + stylométrie | 8.395 | +29.5 % |
 | GBM `mae` + target encoding auteur | 8.356 | +29.8 % |
-| **GBM `mae` + TF-IDF** | **8.284** | **+30.4 %** (meilleur modèle) |
-| **Blend final** (tfidf 0.88 + champion 0.12) | **8.283** | **+30.4 %** |
+| GBM `mae` + TF-IDF | 8.284 | +30.4 % |
+| **GBM `mae` — 64 features en full** (contexte + dynamique auteur + parent-enc + interactions + TF-IDF) | **8.178** | **+31.3 %** (meilleur modèle) |
+| **Blend final** (full 0.73 + tfidf 0.27) | **8.162** | **+31.5 %** |
 
-**Soumission finale** : `submissions/submission_final.csv` (1 016 458 lignes, format `id,predicted`).
+Le modèle « 64 features en full » est entraîné **sans contrainte mémoire** (kernel Kaggle CPU
+30 Go RAM, 0 GPU), sur les 3,2 M lignes et les blocs de features avancées (features de contexte
+intra-fil, dynamique auteur enrichie, réputation auteur du parent, interactions, TF-IDF). Le laptop
+(7,4 Go RAM) ne peut pas charger l'ensemble : l'offload CPU Kaggle est ce qui débloque le full.
+Le blend final absorbe entièrement le champion (poids 0) : il ne reste que le full et le TF-IDF.
+
+**Soumission finale** : `submissions/submission_final3.csv` (1 016 458 lignes, format `id,predicted`).
 
 ## 5. Enseignements
 - **Le network mining porte l'essentiel du signal** : sur les features les plus importantes,
@@ -51,7 +58,15 @@ historiques de la compétition : ~8 à 11.
   dans le fil** prédit la viralité mieux que le style.
 - **Le TF-IDF apporte un complément texte réel** : +0,07 de MAE (8,356 → 8,284), le signal
   lexical capte ce que la stylométrie seule manquait.
+- **Les features avancées + le full data font le gros du dernier gain** : contexte intra-fil,
+  dynamique auteur enrichie, réputation de l'auteur du parent et interactions, entraînés sur les
+  3,2 M lignes complètes, font passer de 8,284 à **8,178** (−0,106). L'essentiel de ce gain vient
+  de l'entraînement sur toutes les lignes (le laptop devait sous-échantillonner) autant que des
+  nouvelles features.
 - **MAE = régression de queue** : l'objectif L1 direct bat Huber et les transformations log.
+- **Rigueur anti-fuite** : la feature `parent_ups` donnait un MAE trompeur de 7,84 mais n'est
+  disponible que sur 1,5 % du test réel (vs 59 % du holdout) — écartée. Seule la réputation
+  agrégée de l'auteur du parent (disponible partout) est conservée.
 
 ## 6. Ce qui reste (état de l'art à pousser)
 - **Fine-tuning d'un encodeur** (DistilBERT / ModernBERT) et **embeddings de phrase** (e5) sur

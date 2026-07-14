@@ -223,5 +223,23 @@ mesure chaque gain (holdout temporel, mode `--eval-only` pour itérer vite).
   baseline. `author_prior_in_thread` et `n_children` (carrefour) rankent haut.
 - En cours : **node2vec** (embeddings du graphe auteur→auteur, `features/graph.py`) + **CatBoost**
   (haute cardinalité native). Objectif : passer nettement sous 8.2.
+- **node2vec + CatBoost abandonnés** : n'apportent rien à ce budget (mesuré, holdout inchangé).
+
+### 2026-07-14 — Full 64 features sur Kaggle CPU (le laptop ne peut pas) + blend final
+Le modèle 64 features complet ne tient pas dans les 7,4 Go du laptop (OOM même avec cap 2 M lignes).
+Offload sur un **kernel Kaggle CPU (30 Go RAM, 0 GPU** — `scripts/kaggle/gbm_kernel.py`,
+`enable_gpu=false`), qui charge tous les blocs de features (base + author_enc + tfidf + context +
+author_dyn + parentenc + interactions), entraîne le LightGBM `mae` sur les **3,2 M lignes**
+(early stopping, best_iter 3723) puis ré-entraîne sur tout le train pour prédire le test.
+- **MAE holdout full = 8.1778** (64 features, 3,2 M lignes) vs 8.2667 (87 feats sous-échantillonné
+  laptop) et 8.284 (TF-IDF) → **le full data + features avancées donnent −0.106** sur le meilleur
+  modèle laptop. Kernel : ~65 min CPU, aucun crédit GPU consommé.
+- Détail infra : le dataset `flosal/defia-features` (12 parquets) est attaché au kernel ;
+  découverte du chemin par glob récursif (`/kaggle/input/**/train_features.parquet`) pour tolérer
+  le sous-dossier de version Kaggle.
+- **Blend final** (`blend --tag final3`, poids MAE-optimaux) : gbm_kaggle 0.727 + gbm_tfidf 0.273
+  (le champion 8.356 est absorbé, poids 0) → **MAE = 8.1617**. Soumission :
+  `submissions/submission_final3.csv` (1 016 458 lignes, format OK, médiane 1.09, queue jusqu'à ~4285).
+- **Bilan A→E réactualisé : baseline 11.907 → 8.162 (−31.5 %)**.
 
 <!-- Prochaines entrées ajoutées à chaque jalon : résultats MAE, choix, ablations. -->
