@@ -1,13 +1,14 @@
 """Network mining avancé — encodage du CONTEXTE PARENT par la cible.
 
-Intuition : répondre à un commentaire/auteur à succès change la visibilité. On encode donc :
-  * `parent_ups` : le score du commentaire auquel on répond (connu à l'inférence — c'est une
-    *autre* observation, pas la cible courante ; NaN si le parent est dans le test ou absent).
+Intuition : répondre à un auteur à succès change la visibilité. On encode :
   * `parent_author_mean` : réputation (moyenne ups lissée, sur le train) de l'AUTEUR du parent.
   * `parent_author_count_log` : activité de l'auteur du parent.
 
-Pas de fuite de la cible courante : on n'utilise jamais `ups` de la ligne elle-même. Le
-`parent_author_mean` est calculé sur le train (le split étant temporel, légitime pour le test).
+ATTENTION (piège de validation évité) : on N'utilise PAS `parent_ups` (le score du commentaire
+parent). Vérification faite : il est connu pour 59 % des lignes du holdout mais seulement 1,5 %
+du VRAI test (car dans le test, le parent est presque toujours aussi dans le test, donc `ups`
+inconnu). L'inclure gonflait artificiellement la MAE holdout (7,84) sans transférer au
+leaderboard. `parent_author_mean`, lui, est un lookup train-global disponible partout : légitime.
 """
 from __future__ import annotations
 
@@ -32,9 +33,6 @@ def build_parent_encoding(
     has_parent = ~np.isnan(parent_pos)
     pp = np.where(has_parent, parent_pos, 0).astype(np.int64)
 
-    # score du parent (autre observation, connue à l'inférence)
-    parent_ups = np.where(has_parent, ups_u[pp], np.nan)
-
     # réputation de l'auteur du parent : moyenne lissée sur le TRAIN
     author_code_u, _ = pd.factorize(union["author"], sort=False)
     gmean = float(np.nanmean(ups_u[:n_tr]))
@@ -50,8 +48,6 @@ def build_parent_encoding(
 
     out = pd.DataFrame({
         "id": union["id"].to_numpy(),
-        "parent_ups": np.where(np.isnan(parent_ups), -1.0, parent_ups).astype(np.float32),
-        "parent_ups_known": (~np.isnan(parent_ups)).astype(bool),
         "parent_author_mean": pa_mean.astype(np.float32),
         "parent_author_count_log": np.log1p(pa_count).astype(np.float32),
     })
