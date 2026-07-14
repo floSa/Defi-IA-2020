@@ -470,7 +470,18 @@ def train_gbm(config: str, log_target, objective, tag: str, eval_only: bool, sam
         click.echo(f"[gbm] (eval-only) MAE holdout={rep['mae']:.4f} — arrêt sans soumission.")
         return
 
-    # --- Soumission : ré-entraînement sur tout le train, prédiction test ---
+    # OOF (holdout) capturé AVANT de libérer les gros DataFrames
+    oof_val_ids = df_val["id"].to_numpy()
+    import gc
+    del df_fit, df_val, model; gc.collect()
+
+    # --- Soumission : ré-entraînement sur le train (sous-échantillonné si trop gros pour la RAM) ---
+    RETRAIN_CAP = 2_000_000  # tient dans ~7 Go avec ~65 features denses ; 2M lignes = amplement suffisant
+    if len(tr) > RETRAIN_CAP:
+        rng2 = np.random.default_rng(cfg.seed + 1)
+        keep = np.sort(rng2.choice(len(tr), size=RETRAIN_CAP, replace=False))
+        tr = tr.iloc[keep].copy(); gc.collect()
+        click.echo(f"[gbm] ré-entraînement sur {RETRAIN_CAP:,} lignes (cap mémoire)")
     test_pred, _ = train_full_predict(tr, te, cols, "ups", params, best, log_target=lt)
     test_pred = np.clip(test_pred, -50, None)  # bornes douces (ups peut être négatif)
     subs = cfg.resolve("submissions"); subs.mkdir(parents=True, exist_ok=True)
@@ -480,7 +491,7 @@ def train_gbm(config: str, log_target, objective, tag: str, eval_only: bool, sam
 
     # --- OOF (holdout) + test predictions pour le blending (Milestone E) ---
     oof_dir = processed / "oof"; oof_dir.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame({"id": df_val["id"].to_numpy(), "pred": val_pred}).to_parquet(
+    pd.DataFrame({"id": oof_val_ids, "pred": val_pred}).to_parquet(
         oof_dir / f"oof_{tag}.parquet", index=False)
     pd.DataFrame({"id": te["id"].to_numpy(), "pred": test_pred}).to_parquet(
         oof_dir / f"test_{tag}.parquet", index=False)
