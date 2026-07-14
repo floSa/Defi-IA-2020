@@ -221,6 +221,48 @@ def author_encoding(config: str, smoothing: float) -> None:
                f"{tr_feat['author_hist_mean'].mean():.3f}")
 
 
+@main.command("context-features")
+@click.option("--config", default="configs/default.yaml")
+def context_features(config: str) -> None:
+    """Features réseau avancées de contexte (parent, vélocité thread, dynamique auteur intra-fil)."""
+    import pandas as pd
+
+    from defia.data.load import load_split
+    from defia.features.context import build_context_features
+
+    cfg = _cfg(config)
+    interim = cfg.resolve("interim")
+    processed = cfg.resolve("processed"); processed.mkdir(parents=True, exist_ok=True)
+    scols = ["id", "created_utc", "link_id", "name", "author", "parent_id"]
+    tr = load_split(interim, "train", scols); n_train = len(tr)
+    te = load_split(interim, "test", scols)
+    union = pd.concat([tr, te], ignore_index=True); del tr, te
+    ctx = build_context_features(union); del union
+    ctx.iloc[:n_train].to_parquet(processed / "train_context.parquet", compression="zstd", index=False)
+    ctx.iloc[n_train:].to_parquet(processed / "test_context.parquet", compression="zstd", index=False)
+    click.echo(f"[context] écrit {ctx.shape[1]-1} features x {len(ctx):,} lignes")
+
+
+@main.command("author-dynamics")
+@click.option("--config", default="configs/default.yaml")
+@click.option("--smoothing", default=20.0)
+def author_dynamics(config: str, smoothing: float) -> None:
+    """Réputation d'auteur enrichie temporelle (mean/std/max/viral/down) -> *_author_dyn.parquet."""
+    from defia.data.load import load_split
+    from defia.features.author_target import build_author_dynamics
+
+    cfg = _cfg(config)
+    interim = cfg.resolve("interim")
+    processed = cfg.resolve("processed"); processed.mkdir(parents=True, exist_ok=True)
+    target = cfg["data"]["target"]
+    tr = load_split(interim, "train", ["id", "author", "created_utc", target])
+    te = load_split(interim, "test", ["id", "author", "created_utc"])
+    d_tr, d_te = build_author_dynamics(tr, te, target=target, smoothing=smoothing)
+    d_tr.to_parquet(processed / "train_author_dyn.parquet", compression="zstd", index=False)
+    d_te.to_parquet(processed / "test_author_dyn.parquet", compression="zstd", index=False)
+    click.echo(f"[author-dyn] écrit {d_tr.shape[1]-1} features x train={len(d_tr):,} test={len(d_te):,}")
+
+
 @main.command("kaggle-export")
 @click.option("--config", default="configs/default.yaml")
 @click.option("--out", default="scripts/kaggle/dataset", help="Dossier de sortie pour le dataset Kaggle.")
@@ -303,7 +345,8 @@ def tfidf_features(config: str, chunk: int, sample_size: int) -> None:
 @click.option("--log-target/--no-log-target", default=None, help="Entraîner sur log1p(ups).")
 @click.option("--objective", default=None, help="mae | huber | quantile (surcharge la config).")
 @click.option("--tag", default="gbm", help="Nom de la soumission/artefacts.")
-def train_gbm(config: str, log_target, objective, tag: str) -> None:
+@click.option("--eval-only", is_flag=True, help="Mesure la MAE holdout puis s'arrête (itération rapide).")
+def train_gbm(config: str, log_target, objective, tag: str, eval_only: bool) -> None:
     """Entraîne LightGBM (objectif MAE) — holdout temporel + soumission test."""
     import json
 
@@ -340,6 +383,14 @@ def train_gbm(config: str, log_target, objective, tag: str) -> None:
         tr = tr.merge(pd.read_parquet(em_tr), on="id", how="left")
         te = te.merge(pd.read_parquet(em_te), on="id", how="left")
         click.echo("[gbm] + emb_* (embeddings de phrase, Kaggle GPU)")
+    for name, label in [("context", "contexte (parent, vélocité, dynamique intra-fil)"),
+                        ("author_dyn", "dynamique auteur (mean/std/max/viral/down)"),
+                        ("graph", "embeddings de graphe node2vec")]:
+        ptr, pte = processed / f"train_{name}.parquet", processed / f"test_{name}.parquet"
+        if ptr.exists() and pte.exists():
+            tr = tr.merge(pd.read_parquet(ptr), on="id", how="left")
+            te = te.merge(pd.read_parquet(pte), on="id", how="left")
+            click.echo(f"[gbm] + {name}_* ({label})")
     cols = feature_columns(tr)
     click.echo(f"[gbm] {len(cols)} features, train={len(tr):,}, test={len(te):,}, "
                f"objective={gbm_cfg['objective']}, log_target={lt}")
@@ -359,6 +410,10 @@ def train_gbm(config: str, log_target, objective, tag: str) -> None:
     # Importances (top 15)
     imp = pd.Series(model.feature_importance(importance_type="gain"), index=cols).sort_values(ascending=False)
     click.echo("[gbm] top features (gain):\n" + imp.head(15).to_string())
+
+    if eval_only:
+        click.echo(f"[gbm] (eval-only) MAE holdout={rep['mae']:.4f} — arrêt sans soumission.")
+        return
 
     # --- Soumission : ré-entraînement sur tout le train, prédiction test ---
     test_pred, _ = train_full_predict(tr, te, cols, "ups", params, best, log_target=lt)

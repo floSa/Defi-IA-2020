@@ -19,6 +19,88 @@ import numpy as np
 import pandas as pd
 
 
+def build_author_dynamics(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    target: str = "ups",
+    smoothing: float = 20.0,
+    viral_thr: float = 10.0,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Réputation d'auteur enrichie, temporellement propre (expanding sur le passé strict).
+
+    Au-delà de la moyenne : écart-type, max, fraction virale (ups>seuil) et downvotée (ups<=0) de
+    l'historique de l'auteur. Pour le train, statistiques sur les commentaires STRICTEMENT
+    antérieurs du même auteur ; pour le test, sur tout l'historique train de l'auteur (split
+    temporel). Retourne (train_feat, test_feat) avec id + colonnes author_dyn_*.
+    """
+    gmean = float(train_df[target].mean())
+    all_a = pd.concat([train_df["author"], test_df["author"]], ignore_index=True)
+    codes, _ = pd.factorize(all_a, sort=False)
+    n_tr = len(train_df)
+    tr_code, te_code = codes[:n_tr], codes[n_tr:]
+
+    order = np.lexsort((train_df["created_utc"].to_numpy(), tr_code))
+    y = train_df[target].to_numpy(dtype=float)[order]
+    g = tr_code[order]
+    viral = (y > viral_thr).astype(float)
+    down = (y <= 0).astype(float)
+
+    df = pd.DataFrame({"g": g, "y": y, "y2": y * y, "v": viral, "d": down})
+    grp = df.groupby("g")
+    csum = grp["y"].cumsum().to_numpy() - y
+    csum2 = grp["y2"].cumsum().to_numpy() - y * y
+    ccnt = grp.cumcount().to_numpy().astype(float)  # nb strictement antérieurs
+    cmax = grp["y"].cummax().to_numpy()
+    cvir = grp["v"].cumsum().to_numpy() - viral
+    cdwn = grp["d"].cumsum().to_numpy() - down
+
+    denom = np.maximum(ccnt, 1)
+    mean = (csum + smoothing * gmean) / (ccnt + smoothing)
+    var = np.maximum(csum2 / denom - (csum / denom) ** 2, 0)
+    inv = np.empty(len(order), dtype=np.int64); inv[order] = np.arange(len(order))
+
+    def _mk(ids, mean_, std_, max_, cnt_, vir_, dwn_):
+        return pd.DataFrame({
+            "id": ids,
+            "author_dyn_mean": mean_.astype(np.float32),
+            "author_dyn_std": std_.astype(np.float32),
+            "author_dyn_max": max_.astype(np.float32),
+            "author_dyn_count_log": np.log1p(cnt_).astype(np.float32),
+            "author_dyn_viral_frac": vir_.astype(np.float32),
+            "author_dyn_down_frac": dwn_.astype(np.float32),
+        })
+
+    # max strictement antérieur : cummax décalé d'un cran dans le groupe (exclut la ligne courante)
+    shifted = pd.Series(cmax).groupby(g).shift(1).to_numpy()
+    prior_max = np.where(np.isnan(shifted), gmean, shifted)
+    train_feat = _mk(
+        train_df["id"].to_numpy(),
+        mean[inv], np.sqrt(var)[inv], prior_max[inv],
+        ccnt[inv], (cvir / (ccnt + smoothing))[inv], (cdwn / (ccnt + smoothing))[inv])
+
+    # TEST : agrégat complet du train par auteur
+    yt = train_df[target].to_numpy(dtype=float)
+    agg = pd.DataFrame({"g": tr_code, "y": yt, "v": (yt > viral_thr).astype(float),
+                        "d": (yt <= 0).astype(float)}).groupby("g").agg(
+        s=("y", "sum"), s2=("y", lambda x: float((x * x).sum())), c=("y", "count"),
+        mx=("y", "max"), vv=("v", "sum"), dd=("d", "sum"))
+    nc = int(codes.max()) + 1 if len(codes) else 0
+    idx = np.arange(nc)
+    s = np.nan_to_num(agg["s"].reindex(idx).to_numpy())
+    s2 = np.nan_to_num(agg["s2"].reindex(idx).to_numpy())
+    c = np.nan_to_num(agg["c"].reindex(idx).to_numpy())
+    mx = agg["mx"].reindex(idx).to_numpy()
+    vv = np.nan_to_num(agg["vv"].reindex(idx).to_numpy())
+    dd = np.nan_to_num(agg["dd"].reindex(idx).to_numpy())
+    te_c = c[te_code]; te_s = s[te_code]
+    te_mean = (te_s + smoothing * gmean) / (te_c + smoothing)
+    te_var = np.maximum(np.where(te_c > 0, s2[te_code] / np.maximum(te_c, 1) - (te_s / np.maximum(te_c, 1)) ** 2, 0), 0)
+    te_max = np.where(np.isnan(mx[te_code]), gmean, mx[te_code])
+    test_feat = _mk(test_df["id"].to_numpy(), te_mean, np.sqrt(te_var), te_max,
+                    te_c, vv[te_code] / (te_c + smoothing), dd[te_code] / (te_c + smoothing))
+    return train_feat, test_feat
+
+
 def build_author_history_features(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
