@@ -462,6 +462,20 @@ def train_gbm(config: str, log_target, objective, tag: str, eval_only: bool, sam
                f"(baseline médiane {rep['mae_baseline']:.4f}, gain {rep['gain_rel']:+.1%}), "
                f"best_iter={best}")
 
+    # Garde-fou : si best_iter frôle le plafond, l'early-stopping ne s'est jamais déclenché et
+    # le modèle progressait encore. La MAE mesure alors le budget d'arbres, pas la qualité des
+    # features — piège rencontré deux fois en comparant des configs à nb de features différent.
+    # Condition exacte : l'early-stopping ne peut conclure que s'il a pu observer `patience`
+    # itérations sans amélioration APRÈS le meilleur tour. Si best + patience dépasse le
+    # plafond, l'entraînement s'est arrêté faute de budget, pas faute de progrès.
+    cap = int(params.get("num_iterations", gbm_cfg.get("n_estimators", 3000)))
+    patience = int(gbm_cfg.get("early_stopping_rounds", 200))
+    if best + patience > cap:
+        click.echo(f"[gbm] /!\\ ATTENTION : best_iter={best} + patience={patience} > plafond "
+                   f"{cap}. L'early-stopping n'a jamais pu se déclencher, le modèle progressait "
+                   f"encore : cette MAE est pessimiste et n'est PAS comparable à un run "
+                   f"convergé. Relance avec --rounds {cap * 2}.")
+
     # Importances (top 15)
     imp = pd.Series(model.feature_importance(importance_type="gain"), index=cols).sort_values(ascending=False)
     click.echo("[gbm] top features (gain):\n" + imp.head(15).to_string())
