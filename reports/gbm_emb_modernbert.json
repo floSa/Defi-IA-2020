@@ -1,0 +1,14 @@
+{
+  "model": "Alibaba-NLP/gte-modernbert-base",
+  "n_components": 128,
+  "svd_explained_variance": 0.696,
+  "encode_minutes": 67.1,
+  "mae_holdout": 8.0448,
+  "n_features": 192,
+  "best_iter": 2995,
+  "comparison": {
+    "e5-small-v2_64dims": 7.9968,
+    "delta": 0.048
+  },
+  "confound": "modele ET nombre de dimensions changent simultanement; test isolant a faire (modernbert tronque a 64 dims)"
+}
