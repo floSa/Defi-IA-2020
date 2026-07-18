@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+import torch
 from sentence_transformers import SentenceTransformer
 from sklearn.decomposition import TruncatedSVD
 
@@ -25,7 +26,9 @@ N_COMPONENTS = 64
 SAMPLE_SIZE = 200_000
 BATCH_SIZE = 256
 SEED = 42
-DEVICE = "cpu"   # e5-small suffit en CPU (~2h pour 4,2M) ; évite la loterie GPU P100/T4 sur Kaggle
+# GPU si dispo (encodage ~30-45 min pour 4,2M sur T4/P100), sinon CPU (~2h). e5-small est petit
+# et robuste : pas de dépendance transformers exotique, donc pas de piège sm_60/ModernBERT ici.
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 OUT_DIR = "/kaggle/working"
 
 
@@ -58,7 +61,8 @@ def encode(model: SentenceTransformer, texts: list[str]) -> np.ndarray:
 
 def main() -> None:
     input_dir = find_input_dir()
-    print(f"[kernel] input_dir={input_dir} modèle={MODEL_NAME} device={DEVICE}")
+    gpu = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "-"
+    print(f"[kernel] input_dir={input_dir} modèle={MODEL_NAME} device={DEVICE} gpu={gpu}")
     model = SentenceTransformer(MODEL_NAME, device=DEVICE)
 
     train_path = os.path.join(input_dir, "train.parquet")
