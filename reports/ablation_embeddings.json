@@ -25,9 +25,15 @@
       "best_iter": 2995,
       "svd_var": 0.696,
       "converge": false
+    },
+    "e5_128_budget_double": {
+      "mae": 8.0325,
+      "best_iter": 3938,
+      "plafond": 6000,
+      "converge": true
     }
   },
   "conclusion_1": "modernbert perd contre e5 a dimensionnalite egale: confondu leve",
-  "conclusion_2": "plus de dimensions ne gagne pas, mais les runs 192 features n ont pas converge (budget d arbres insuffisant) - relance en cours a 6000 rounds",
+  "conclusion_2": "plus de dimensions ne gagne pas, CONFIRME a budget equitable: e5 128 dims converge a 8.0325 contre 7.9968 en 64 dims. Le premier test (8.0386) etait sous-entraine mais le classement etait deja bon.",
   "hypothese_invalidee": "le rapport annoncait la SVD a 64 dims comme premier levier (58,3% de variance retenue); passer a 128 degrade de 0.042"
 }
