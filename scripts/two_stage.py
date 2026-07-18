@@ -66,7 +66,8 @@ clf = lgb.train(
 )
 p1 = clf.predict(Xv, num_iteration=clf.best_iteration)
 from sklearn.metrics import roc_auc_score
-print(f"[2stage] étage A : AUC={roc_auc_score((yv == 1).astype(int), p1):.4f} "
+auc = roc_auc_score((yv == 1).astype(int), p1)
+print(f"[2stage] étage A : AUC={auc:.4f} "
       f"best_iter={clf.best_iteration} ({time.time()-t0:.0f}s)", flush=True)
 
 # --- Étage B : régression L1 sur les non-1 seulement ---
@@ -83,21 +84,34 @@ reg = lgb.train(
 pb = reg.predict(Xv, num_iteration=reg.best_iteration)
 print(f"[2stage] étage B : best_iter={reg.best_iteration} ({time.time()-t0:.0f}s)", flush=True)
 
-# --- Combinaison : seuil choisi sur le holdout ---
+# --- Combinaison : le seuil est un paramètre appris, il ne peut pas être réglé sur le jeu qui
+# sert à le juger. On coupe le holdout en deux moitiés TEMPORELLES : on règle le seuil sur la
+# première (tune), on rapporte la MAE sur la seconde (report), jamais vue par le réglage.
+half = len(yv) // 2
+tune, report = slice(None, half), slice(half, None)
+GRID = [0.0, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45,
+        0.50, 0.60, 0.70, 0.80, 0.90, 1.1]
+
 results = {}
-for t in [0.0, 0.3, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.9, 1.1]:
-    pred = np.where(p1 >= t, 1.0, pb)
-    results[round(t, 2)] = float(np.abs(pred - yv).mean())
+for t in GRID:
+    results[round(t, 2)] = float(np.abs(np.where(p1[tune] >= t, 1.0, pb[tune]) - yv[tune]).mean())
 best_t = min(results, key=results.get)
-print("[2stage] MAE par seuil :", flush=True)
+
+mae_report = float(np.abs(np.where(p1[report] >= best_t, 1.0, pb[report]) - yv[report]).mean())
+mae_full = float(np.abs(np.where(p1 >= best_t, 1.0, pb) - yv).mean())
+
+print("[2stage] MAE par seuil (moitié 'tune' du holdout) :", flush=True)
 for t, m in sorted(results.items()):
-    flag = "  <-- meilleur" if t == best_t else ""
+    flag = "  <-- retenu" if t == best_t else ""
     label = {0.0: " (tout=1)", 1.1: " (jamais 1 => étage B seul)"}.get(t, "")
     print(f"    seuil {t:<5} MAE={m:.4f}{label}{flag}", flush=True)
 
-print(f"\n[2stage] MEILLEUR : seuil={best_t} MAE={results[best_t]:.4f} "
-      f"| référence 1 étage = 7.9968 | delta={results[best_t]-7.9968:+.4f}", flush=True)
-json.dump({"mae_by_threshold": results, "best_threshold": best_t,
-           "best_mae": results[best_t], "reference_single_stage": 7.9968},
+print(f"\n[2stage] seuil retenu={best_t} (réglé sur la 1re moitié)", flush=True)
+print(f"[2stage] MAE sur la 2e moitié, JAMAIS vue par le réglage : {mae_report:.4f}", flush=True)
+print(f"[2stage] MAE sur le holdout entier (comparable au 1 étage) : {mae_full:.4f} "
+      f"| référence 1 étage = 7.9968 | delta={mae_full-7.9968:+.4f}", flush=True)
+json.dump({"mae_by_threshold_tune_half": results, "best_threshold": best_t,
+           "mae_report_half_unseen": mae_report, "mae_full_holdout": mae_full,
+           "reference_single_stage": 7.9968, "stage_a_auc": float(auc)},
           open("reports/two_stage.json", "w"), indent=2)
 print(f"[2stage] terminé en {(time.time()-t0)/60:.1f} min -> reports/two_stage.json", flush=True)
