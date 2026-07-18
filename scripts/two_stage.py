@@ -9,9 +9,11 @@ une valeur de queue », et lisse les deux. On sépare explicitement les deux que
     Prédiction : 1.0 si P >= seuil, sinon la sortie de l'étage B
 
 Le seuil est choisi sur le holdout temporel (celui qui minimise la MAE), pas fixé a priori.
-Référence à battre : MAE 7.9968 (GBM 128 features, un seul étage).
+Référence à battre : la MAE du modèle à un étage, lue dans reports/gbm_*.json (jamais codée
+en dur : une valeur figée devient fausse dès que le jeu de features change).
 """
 import json
+from pathlib import Path
 import sys
 import time
 
@@ -108,10 +110,17 @@ for t, m in sorted(results.items()):
 
 print(f"\n[2stage] seuil retenu={best_t} (réglé sur la 1re moitié)", flush=True)
 print(f"[2stage] MAE sur la 2e moitié, JAMAIS vue par le réglage : {mae_report:.4f}", flush=True)
-print(f"[2stage] MAE sur le holdout entier (comparable au 1 étage) : {mae_full:.4f} "
-      f"| référence 1 étage = 7.9968 | delta={mae_full-7.9968:+.4f}", flush=True)
+# La référence à un étage se lit dans le dernier rapport GBM plutôt que codée en dur : une
+# valeur figée devient silencieusement fausse dès que le jeu de features change, et affiche
+# alors un gain gonflé (elle a annoncé -0.057 au lieu de -0.027 après le passage à l'hybride).
+ref_path = Path("reports/gbm_hybrid_full.json")
+ref = json.load(open(ref_path))["holdout"]["mae"] if ref_path.exists() else None
+delta = f" | référence 1 étage = {ref:.4f} | delta={mae_full-ref:+.4f}" if ref else \
+        " (référence 1 étage introuvable : lance d'abord train-gbm)"
+print(f"[2stage] MAE sur le holdout entier (comparable au 1 étage) : {mae_full:.4f}{delta}",
+      flush=True)
 json.dump({"mae_by_threshold_tune_half": results, "best_threshold": best_t,
            "mae_report_half_unseen": mae_report, "mae_full_holdout": mae_full,
-           "reference_single_stage": 7.9968, "stage_a_auc": float(auc)},
+           "reference_single_stage": ref, "stage_a_auc": float(auc)},
           open("reports/two_stage.json", "w"), indent=2)
 print(f"[2stage] terminé en {(time.time()-t0)/60:.1f} min -> reports/two_stage.json", flush=True)
