@@ -1,0 +1,32 @@
+{
+  "question": "le fine-tuning end-to-end d un encodeur bat-il les embeddings figes ?",
+  "reponse": "oui, mais uniquement par sa SORTIE. Ses representations internes ressortent DEGRADEES.",
+  "runs_gbm": {
+    "embeddings_figes_64d": {
+      "mae": 7.9968,
+      "best_iter": 2784
+    },
+    "ft_L1_embeddings": {
+      "mae": 8.0754,
+      "best_iter": 4576,
+      "note": "objectif effondre sur la mediane"
+    },
+    "ft_classification_embeddings": {
+      "mae": 8.0118,
+      "best_iter": 3823,
+      "note": "bon objectif, embeddings quand meme moins bons que les figes"
+    },
+    "hybride_figes_plus_proba": {
+      "mae": 7.966,
+      "best_iter": 5360,
+      "note": "MEILLEUR: on jette les representations fine-tunees, on garde la proba"
+    }
+  },
+  "auc_texte_seul": {
+    "valeur": 0.6057,
+    "comparaison": "0.793 pour le meme classifieur nourri aux features structurelles",
+    "saturation": "0.6036 des 80k lignes / 1 epoque contre 0.6057 sur 2,28M / 2 epoques - le signal textuel sature quasi immediatement"
+  },
+  "emb_p1_importance": "7e sur 129 features par gain, devant n_siblings, thread_size et toute la dynamique auteur",
+  "enseignement_transferable": "la pratique courante consistant a recuperer les embeddings d un modele fine-tune aurait ete PERDANTE ici (8.0118 contre 7.9968). Il fallait jeter les representations et ne garder que la prediction."
+}
