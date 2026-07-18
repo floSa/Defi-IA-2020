@@ -31,9 +31,18 @@
       "best_iter": 3938,
       "plafond": 6000,
       "converge": true
+    },
+    "e5_32_budget_suffisant": {
+      "mae": 7.9973,
+      "best_iter": 5653,
+      "plafond": 6000,
+      "converge": true,
+      "note": "mesure a budget insuffisant donnait 8.0174 - erreur de 0.02, soit 4x le gain cherche entre configs"
     }
   },
   "conclusion_1": "modernbert perd contre e5 a dimensionnalite egale: confondu leve",
   "conclusion_2": "plus de dimensions ne gagne pas, CONFIRME a budget equitable: e5 128 dims converge a 8.0325 contre 7.9968 en 64 dims. Le premier test (8.0386) etait sous-entraine mais le classement etait deja bon.",
-  "hypothese_invalidee": "le rapport annoncait la SVD a 64 dims comme premier levier (58,3% de variance retenue); passer a 128 degrade de 0.042"
+  "hypothese_invalidee": "le rapport annoncait la SVD a 64 dims comme premier levier (58,3% de variance retenue); passer a 128 degrade de 0.042",
+  "conclusion_3": "32 et 64 dims sont indiscernables (7.9973 vs 7.9968). On peut diviser par deux le nombre de dimensions sans perte, au prix de deux fois plus d arbres (5653 vs 2784): l information est la, elle est juste plus difficile a extraire une fois comprimee.",
+  "avertissement_methode": "Sur six runs de la session, seuls deux avaient converge. Comparer des configs a nombre de features different EXIGE de verifier best_iter + patience <= plafond, sinon on mesure le budget d entrainement. Garde-fou ajoute dans cli.py (commit 834d178)."
 }
