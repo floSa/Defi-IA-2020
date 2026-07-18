@@ -1,7 +1,12 @@
-# Data (never commit the big files)
+# Data — via Git LFS : interim/processed parquets suivis, brut exclu (redondant, trop lourd)
 data/raw/*
 data/interim/*
+!data/interim/*.parquet
 data/processed/*
+!data/processed/*.parquet
+!data/processed/oof/
+data/processed/oof/*
+!data/processed/oof/*.parquet
 data/external/*
 !data/**/.gitkeep
 *.zip
