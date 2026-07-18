@@ -1,0 +1,9 @@
+{
+  "model": "intfloat/e5-small-v2",
+  "tag": "ft_e5",
+  "mae_holdout": 11.903388023376465,
+  "epochs": 2,
+  "batch": 256,
+  "lr": 2e-05,
+  "minutes": 111.99477970202764
+}

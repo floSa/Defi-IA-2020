@@ -1,0 +1,33 @@
+{
+  "objective": "mae",
+  "log_target": false,
+  "best_iter": 5360,
+  "holdout": {
+    "mae": 7.966029011724352,
+    "mae_baseline": 11.907397094794018,
+    "gain_abs": 3.9413680830696656,
+    "gain_rel": 0.3310016497890084
+  },
+  "top_features": {
+    "hour": 2933600.002916813,
+    "author_prior_in_thread": 905164.450615406,
+    "emb_p1": 716681.0902543068,
+    "pct_in_thread": 593331.0947766304,
+    "sibling_rank": 539416.7664361,
+    "rank_in_thread": 534135.012556076,
+    "author_hist_mean": 452422.39141607285,
+    "n_children": 444003.6085424423,
+    "author_hist_count_log": 433164.6404290199,
+    "thread_n_authors": 421253.2516088486,
+    "dow": 408019.7932982445,
+    "n_siblings": 391484.115673542,
+    "thread_size": 354070.42019176483,
+    "x_downfrac_len": 352636.75635290146,
+    "author_dyn_down_frac": 320834.8302488327,
+    "thread_duration_log": 304361.8770265579,
+    "thread_velocity": 276386.99538326263,
+    "age_in_thread": 269040.69768571854,
+    "author_dyn_std": 261544.67742443085,
+    "x_authormean_arrival": 234461.73025655746
+  }
+}

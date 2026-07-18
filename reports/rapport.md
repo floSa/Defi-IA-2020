@@ -76,14 +76,20 @@ est **vérifié**. Toutes les MAE ci-dessous sont mesurées sur le même holdout
 | Modèle | Features | MAE | vs référence |
 |---|---|---|---|
 | Champion CPU reproduit en local | 64 | 8,1851 | référence |
-| + embeddings **e5-small-v2** (64 dims) | 128 | **7,9968** | −0,188 |
+| + embeddings **e5-small-v2** (64 dims) | 128 | 7,9968 | −0,188 |
 | + embeddings **gte-modernbert-base** (64 dims, convergé) | 128 | 7,9996 | −0,186 |
-| **Deux étages** (classifieur `ups==1` + L1 sur la queue), sur e5 | 128 | **7,9596** | −0,226 |
-| **Blend** (deux étages 0,60 / e5 0,40) | — | 7,9341 | −0,251 |
-| **Blend + règle deux étages par-dessus** | — | **7,9276** | **−0,258 (−3,1 %)** |
+| **+ probabilité issue du fine-tuning** (« hybride ») | 129 | **7,9660** | −0,219 |
+| **Deux étages** (classifieur `ups==1` + L1 sur la queue) | 129 | **7,9394** | −0,246 |
+| **Blend** (deux étages 0,55 / hybride 0,27 / e5 figé 0,18) | — | 7,9137 | −0,271 |
+| **Blend + règle deux étages par-dessus** | — | **7,9077** | **−0,277 (−3,4 %)** |
 
-Soit **−33,4 %** sur la baseline médiane (11,9074), contre −31,3 % avant cette session.
-Soumission finale : `submissions/submission_final_blend2s.csv`.
+Soit **−33,6 %** sur la baseline médiane (11,9074), contre −31,3 % avant cette session.
+Soumission finale : `submissions/submission_final_hybrid2s.csv` (1 016 458 lignes, 0 NaN).
+
+Le blend retient **trois** modèles et écarte les trois antérieurs (poids exactement nul). Le
+modèle sur embeddings figés y garde 18 % du poids malgré un score individuel inférieur : il
+capte quelque chose que les deux modèles hybrides manquent. L'avoir écarté du pool aurait coûté
+ce gain.
 
 ### Ablation des embeddings — tous les points convergés
 | Modèle | Dims | MAE | best_iter | Plafond |
@@ -127,6 +133,38 @@ que l'ablation cherchait à détecter. Un garde-fou est désormais dans `cli.py`
 **Règle à retenir** : comparer des configurations à nombre de features différent exige de
 vérifier que *chacune* a convergé. Plus de features (ou des features plus difficiles à exploiter)
 demande plus d'arbres ; à budget fixe, on classe les budgets et non les modèles.
+
+### Fine-tuning end-to-end : il paie par sa sortie, pas par ses représentations
+| Configuration | MAE | Note |
+|---|---|---|
+| Embeddings figés 64 dims | 7,9968 | référence |
+| Fine-tuning **objectif L1**, ses embeddings | 8,0754 | effondré sur la médiane |
+| Fine-tuning **classification**, ses embeddings | 8,0118 | bon objectif, embeddings quand même perdants |
+| **Figés + probabilité du fine-tuning** | **7,9660** | ✅ on jette les représentations, on garde la sortie |
+
+**Le premier fine-tuning a échoué de façon instructive.** Entraîné en régression L1 directe sur
+`ups` — la métrique du challenge — il sort une MAE de 11,903, soit exactement le niveau de
+« prédire 1 partout » (11,907). C'est mécanique : 52 % des `ups` valent 1, donc **la constante
+qui minimise la L1 est la médiane**, et le texte seul ne donne pas de quoi faire mieux. La
+descente de gradient s'y gare (prédictions : médiane 1,002, troisième quartile 1,003).
+
+Deux enseignements de cet échec :
+- **Un fine-tuning mal objectivé est pire que pas de fine-tuning** : ses embeddings donnent
+  8,0754 contre 7,9968 pour les génériques dont il est parti. Il détruit de l'information.
+- **La variance par dimension ne mesure pas la santé d'un encodeur** : les 64 dimensions
+  gardaient toute leur variance, aucune n'était morte, et la représentation était pourtant
+  dégradée. Ce critère rassure à tort.
+
+Avec l'objectif corrigé (classification `ups==1`, équilibrée 52/48 donc sans point fixe
+dégénéré), **les représentations restent perdantes** (8,0118) mais **la probabilité prédite est
+excellente** : 7ᵉ feature sur 129 par gain, devant `n_siblings` et toute la dynamique auteur.
+D'où l'hybride gagnant. **La pratique courante consistant à récupérer les embeddings d'un modèle
+fine-tuné aurait été perdante ici** ; il fallait jeter les représentations et ne garder que la
+prédiction.
+
+Enfin, **le signal textuel sature immédiatement** : AUC 0,6036 dès 80 000 lignes en une époque,
+contre 0,6057 sur 2,28 M lignes en deux époques — 70× plus de données pour +0,002. Et il reste
+faible dans l'absolu face au structurel (0,793 pour le même classifieur sur features réseau).
 
 ### La règle « réponds 1 » appliquée au blend
 Gain réel mais faible (−0,0065, confirmé à −0,0069 sur la moitié non vue) : le blend contient

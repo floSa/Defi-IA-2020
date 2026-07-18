@@ -48,10 +48,10 @@ clf = lgb.train({"objective": "binary", "learning_rate": 0.05, "num_leaves": 255
                 lgb.Dataset(X, label=(y == 1).astype(int)), num_boost_round=n_trees)
 p1 = clf.predict(Xte)
 
-blend = pd.read_csv(subs / "submission_final_gpu.csv")
+blend = pd.read_csv(subs / "submission_final_hybrid.csv")
 assert (blend["id"].to_numpy() == te_ids).all(), "ids désalignés entre blend et features test"
 final = np.where(p1 >= THRESHOLD, 1.0, blend["predicted"].to_numpy())
-out = subs / "submission_final_blend2s.csv"
+out = subs / "submission_final_hybrid2s.csv"
 pd.DataFrame({"id": te_ids, "predicted": final}).to_csv(out, index=False)
 print(f"[sub] part des prédictions forcées à 1 : {(p1 >= THRESHOLD).mean():.1%}", flush=True)
 print(f"[sub] écrit {out} ({(time.time()-t0)/60:.1f} min)", flush=True)

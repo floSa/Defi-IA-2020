@@ -1,0 +1,10 @@
+{
+  "model": "intfloat/e5-small-v2",
+  "tag": "ft_e5_cls",
+  "objective": "cls",
+  "auc_holdout": 0.6056830205096042,
+  "epochs": 2,
+  "batch": 256,
+  "lr": 2e-05,
+  "minutes": 103.69242036342621
+}
