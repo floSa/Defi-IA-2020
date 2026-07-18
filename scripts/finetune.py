@@ -101,6 +101,12 @@ def main() -> None:
     ap.add_argument("--prefix", default="passage: ")
     ap.add_argument("--smoke", type=int, default=0,
                     help="Test de bout en bout sur N lignes (valide le chemin complet vite).")
+    ap.add_argument("--objective", default="l1", choices=["l1", "cls"],
+                    help="l1 = régression directe sur ups (s'effondre sur la médiane : "
+                         "52%% des ups valent 1, et la constante optimale en L1 EST la "
+                         "médiane) ; cls = classification ups==1, équilibrée 52/48 donc "
+                         "insensible à ce collapsus, et c'est le signal qu'exploite le "
+                         "modèle deux étages.")
     args = ap.parse_args()
 
     t_start = time.time()
@@ -127,8 +133,11 @@ def main() -> None:
     ups = tr["ups"].to_numpy(dtype="float32")
     ids = tr["id"].to_numpy()
     fit_texts = [args.prefix + texts[i] for i in fit_idx]
-    fit_y = ups[fit_idx]
-    log(f"fit={len(fit_idx):,} holdout={len(val_idx):,}")
+    # En classification, la cible est l'indicatrice ups==1 (et non ups lui-même).
+    fit_y = (ups[fit_idx] == 1).astype("float32") if args.objective == "cls" else ups[fit_idx]
+    log(f"fit={len(fit_idx):,} holdout={len(val_idx):,} objectif={args.objective}")
+    if args.objective == "cls":
+        log(f"part de ups==1 dans le fit : {fit_y.mean():.1%} (equilibre -> pas de collapsus)")
 
     model = Regressor(args.model).cuda()
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
@@ -162,7 +171,10 @@ def main() -> None:
                 enc = tok(bt, padding=True, truncation=True, max_length=SEQ_LEN,
                           return_tensors="pt").to("cuda")
                 with torch.amp.autocast("cuda", dtype=torch.float16):
-                    loss = torch.nn.functional.l1_loss(model(**enc), by)
+                    out = model(**enc)
+                    loss = (torch.nn.functional.binary_cross_entropy_with_logits(out, by)
+                            if args.objective == "cls"
+                            else torch.nn.functional.l1_loss(out, by))
                 scaler.scale(loss).backward()
                 scaler.step(opt); scaler.update(); opt.zero_grad(set_to_none=True)
                 running += loss.item(); seen += 1
@@ -213,12 +225,19 @@ def main() -> None:
                 log(f"  inférence {s:,}/{len(order):,}")
         return preds, embs
 
-    log("inférence sur le holdout (OOF)...")
+    log("inférence sur le holdout...")
     val_pred, val_emb = infer([args.prefix + texts[i] for i in val_idx])
-    mae = float(np.abs(val_pred - ups[val_idx]).mean())
-    log(f"MAE HOLDOUT du fine-tuning seul = {mae:.4f}")
-    pd.DataFrame({"id": ids[val_idx], "pred": val_pred}).to_parquet(
-        oof_dir / f"oof_{args.tag}.parquet", index=False)
+    if args.objective == "cls":
+        from sklearn.metrics import roc_auc_score
+        score = float(roc_auc_score((ups[val_idx] == 1).astype(int), val_pred))
+        log(f"AUC HOLDOUT (texte seul, ups==1) = {score:.4f}")
+        # La sortie est une probabilité, pas une prédiction d'ups : elle n'a rien à faire
+        # dans le blend (qui mélange des prédictions de la cible). Elle part en feature.
+    else:
+        score = float(np.abs(val_pred - ups[val_idx]).mean())
+        log(f"MAE HOLDOUT du fine-tuning seul = {score:.4f}")
+        pd.DataFrame({"id": ids[val_idx], "pred": val_pred}).to_parquet(
+            oof_dir / f"oof_{args.tag}.parquet", index=False)
 
     log("inférence sur le test...")
     te = pd.read_parquet("data/interim/test.parquet", columns=["id", "body"])
@@ -226,8 +245,9 @@ def main() -> None:
         te = te.head(args.smoke).reset_index(drop=True)
     te_texts = [args.prefix + t for t in te["body"].fillna("").astype(str).tolist()]
     te_pred, te_emb = infer(te_texts)
-    pd.DataFrame({"id": te["id"].to_numpy(), "pred": te_pred}).to_parquet(
-        oof_dir / f"test_{args.tag}.parquet", index=False)
+    if args.objective != "cls":
+        pd.DataFrame({"id": te["id"].to_numpy(), "pred": te_pred}).to_parquet(
+            oof_dir / f"test_{args.tag}.parquet", index=False)
 
     # Embeddings fine-tunés réduits, au format attendu par train-gbm (merge automatique)
     log("inférence sur le reste du train (pour les embeddings GBM)...")
@@ -239,16 +259,25 @@ def main() -> None:
     svd = TruncatedSVD(n_components=n_comp, random_state=cfg.seed).fit(
         all_emb[np.random.default_rng(cfg.seed).choice(len(all_emb), n_sample, replace=False)])
     cols = [f"emb_{i}" for i in range(n_comp)]
+    # En classification, la probabilité prédite est elle-même une feature de premier ordre
+    # pour le GBM (c'est l'étage A du modèle deux étages, appris sur le texte seul).
+    all_p = np.empty(len(texts), dtype=np.float32)
+    all_p[fit_idx] = fit_pred; all_p[val_idx] = val_pred
+    probs = {"train": all_p, "test": te_pred}
     for name, arr, idx_ in [("train", all_emb, ids), ("test", te_emb, te["id"].to_numpy())]:
         red = svd.transform(arr).astype(np.float32)
         df = pd.DataFrame(red, columns=cols); df.insert(0, "id", idx_)
+        if args.objective == "cls":
+            df["emb_p1"] = 1.0 / (1.0 + np.exp(-probs[name]))  # logit -> probabilité
         df.to_parquet(processed / f"{name}_{args.tag}emb.parquet", compression="zstd", index=False)
         log(f"écrit {name}_{args.tag}emb.parquet")
 
-    json.dump({"model": args.model, "tag": args.tag, "mae_holdout": mae, "epochs": args.epochs,
+    json.dump({"model": args.model, "tag": args.tag, "objective": args.objective,
+               ("auc_holdout" if args.objective == "cls" else "mae_holdout"): score,
+               "epochs": args.epochs,
                "batch": args.batch, "lr": args.lr, "minutes": (time.time() - t_start) / 60},
               open(f"reports/{args.tag}.json", "w"), indent=2)
-    log(f"TERMINE — MAE holdout {mae:.4f} en {(time.time()-t_start)/60:.0f} min")
+    log(f"TERMINE — score holdout {score:.4f} en {(time.time()-t_start)/60:.0f} min")
 
 
 if __name__ == "__main__":

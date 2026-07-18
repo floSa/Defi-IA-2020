@@ -1,0 +1,16 @@
+{
+  "run": "fine-tuning e5 objectif L1 direct sur ups",
+  "mae_du_modele_seul": 11.9034,
+  "baseline_predire_1": 11.9074,
+  "diagnostic": "collapsus sur la mediane. 52% des ups valent 1, la constante optimale en L1 EST la mediane, la descente de gradient s y gare. Predictions: mediane 1.002, 3e quartile 1.003, max 2.03.",
+  "embeddings_dans_le_gbm": {
+    "fine_tunes": 8.0754,
+    "figes": 7.9968,
+    "delta": 0.0786,
+    "best_iter": 4576,
+    "converge": true
+  },
+  "enseignement_1": "un fine-tuning avec un mauvais objectif est PIRE que pas de fine-tuning: il abime les representations (8.0754 contre 7.9968).",
+  "enseignement_2": "la variance par dimension ne mesure PAS la sante d un encodeur: les 64 dims gardaient toute leur variance (aucune dim morte) alors que la structure utile etait detruite.",
+  "correction": "objectif remplace par une classification ups==1, equilibree 52/48 donc sans point fixe degenere. Smoke test: AUC 0.6036 sur 80k lignes / 1 epoque."
+}
