@@ -1,0 +1,25 @@
+{
+  "models": [
+    "emb_e5_full",
+    "gbm_champion",
+    "gbm_kaggle",
+    "gbm_tfidf",
+    "two_stage"
+  ],
+  "weights": {
+    "emb_e5_full": 0.3977704197017741,
+    "gbm_champion": 0.0,
+    "gbm_kaggle": 3.348575763144038e-17,
+    "gbm_tfidf": 0.0,
+    "two_stage": 0.6022295802982259
+  },
+  "singles_mae": {
+    "emb_e5_full": 7.996765526721157,
+    "gbm_champion": 8.355923669479733,
+    "gbm_kaggle": 8.17777969794334,
+    "gbm_tfidf": 8.284077583015366,
+    "two_stage": 7.959640920219353
+  },
+  "blend_mae": 7.934066105452609,
+  "best_single": 7.959640920219353
+}

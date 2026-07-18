@@ -585,7 +585,9 @@ def blend(config: str, tag: str) -> None:
     for name, m in sorted(singles.items(), key=lambda kv: kv[1]):
         click.echo(f"   {name:26s} {m:.4f}   poids={w[models.index(name)]:.3f}")
     best_single = min(singles.values())
-    click.echo(f"[blend] ★ BLEND MAE={blend_mae:.4f}  (meilleur seul {best_single:.4f}, "
+    # Pas de caractère hors latin-1 ici : la console Windows est en cp1252 et un ★ fait
+    # planter tout le run sur UnicodeEncodeError, après que le blend a pourtant abouti.
+    click.echo(f"[blend] >>> BLEND MAE={blend_mae:.4f}  (meilleur seul {best_single:.4f}, "
                f"gain {(best_single-blend_mae)/best_single:+.2%})")
 
     # Application des poids au test -> soumission

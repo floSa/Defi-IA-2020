@@ -68,11 +68,55 @@ Le blend final absorbe entièrement le champion (poids 0) : il ne reste que le f
   disponible que sur 1,5 % du test réel (vs 59 % du holdout) — écartée. Seule la réputation
   agrégée de l'auteur du parent (disponible partout) est conservée.
 
-## 6. Ce qui reste (état de l'art à pousser)
-- **Fine-tuning d'un encodeur** (DistilBERT / ModernBERT) et **embeddings de phrase** (e5) sur
-  `body` : code prêt (`scripts/kaggle/`, `src/defia/models/transformer.py`), en attente d'un GPU
-  disponible. Impasses rencontrées côté Kaggle documentées ci-dessous.
-- Intégration de ces prédictions texte profondes au blend devrait faire passer sous 8,0.
+## 6. Session GPU locale (RTX 4060 Ti 16 Go) — passage sous 8,0
+
+Le pari du § précédent (« les prédictions texte profondes devraient faire passer sous 8,0 »)
+est **vérifié**. Toutes les MAE ci-dessous sont mesurées sur le même holdout temporel 7 jours.
+
+| Modèle | Features | MAE | vs référence |
+|---|---|---|---|
+| Champion CPU reproduit en local | 64 | 8,1851 | référence |
+| + embeddings **e5-small-v2** (64 dims) | 128 | **7,9968** | −0,188 |
+| + embeddings **gte-modernbert-base** (128 dims) | 192 | 8,0448 | −0,140 |
+| **Deux étages** (classifieur `ups==1` + L1 sur la queue), sur e5 | 128 | **7,9596** | −0,226 |
+| **Blend final** (deux étages 0,60 / e5 0,40) | — | **7,9341** | **−0,251 (−3,1 %)** |
+
+Soit **−33,4 %** sur la baseline médiane (11,9074), contre −31,3 % avant cette session.
+
+### Ce que la session a appris
+- **Le GPU change la faisabilité, pas seulement la vitesse.** Encoder 4,23 M commentaires prend
+  **13 min** avec e5-small (fp16, tri par longueur pour réduire le padding, SVD en streaming) là
+  où le kernel Kaggle estimait **47 h en CPU** et se faisait annuler. Facteur ~280.
+- **Plus récent et plus gros ≠ meilleur.** `gte-modernbert-base` (2025, 149 M params, variance
+  SVD retenue 0,696) fait **moins bien** que `e5-small-v2` (2023, 33 M params, variance 0,583),
+  pour **5× le coût d'encodage** (67 min vs 13 min). *Réserve de méthode :* modèle et
+  dimensionnalité changent simultanément dans cette comparaison ; le test isolant (tronquer
+  modernbert à ses 64 premières composantes SVD, qui sont ordonnées par variance décroissante)
+  reste à faire avant de conclure sur le modèle seul.
+- **Le signal texte est diffus.** Aucun `emb_*` n'entre dans le top-15 des features par gain —
+  les structurelles dominent toujours — et pourtant les 64 dimensions valent ensemble 0,19 point
+  de MAE. Conséquence pratique : ne pas élaguer ces features sur un critère de gain individuel.
+- **La forme de la cible se traite explicitement.** 52 % des `ups` valent 1 ; séparer
+  « est-ce un 1 ? » (AUC 0,793) de « quelle valeur en queue ? » gagne 0,037. Le seuil de
+  combinaison est réglé sur la première moitié du holdout et **mesuré sur la seconde, jamais vue
+  par le réglage** : le gain y est même plus large (−0,055), ce n'est donc pas un artefact.
+- **Le blend écarte tout le passé.** Poids nul pour les trois modèles antérieurs
+  (`gbm_champion`, `gbm_kaggle`, `gbm_tfidf`) : ils n'apportent plus rien face aux deux modèles
+  à embeddings.
+
+### Deux bugs de fond corrigés au passage
+- **Cap de ré-entraînement à 2 M lignes en dur** (hérité du laptop 7,4 Go) : il amputait le
+  modèle final de 38 % du train sur une machine 66 Go. Désormais calculé depuis la RAM
+  disponible. Impact mesuré : **47 % des prédictions test bougent de plus de 0,1**.
+- **`UnicodeEncodeError` sur `★`** dans la sortie du blend : la console Windows est en cp1252,
+  le run entier plantait *après* que le blend avait abouti, résultat perdu.
+
+### Prochaines pistes, par rapport coût/bénéfice
+1. Tronquer modernbert à 64 dims pour isoler modèle vs dimensionnalité (1 run GBM, ~25 min).
+2. e5-small en 128 dims : la SVD à 64 ne retient que 58,3 % de la variance (~35 min).
+3. Deux étages appliqué au blend plutôt qu'à un seul modèle.
+4. Fine-tuning end-to-end objectif L1 — désormais réaliste, 16 Go de VRAM suffisent pour un
+   encodeur *base*.
 
 ### Impasses Kaggle (GPU) rencontrées
 - GPU **P100 (sm_60)** attribué : incompatible avec le PyTorch pré-installé de Kaggle (sm_70+).
