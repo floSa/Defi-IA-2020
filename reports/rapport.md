@@ -79,9 +79,37 @@ est **vérifié**. Toutes les MAE ci-dessous sont mesurées sur le même holdout
 | + embeddings **e5-small-v2** (64 dims) | 128 | **7,9968** | −0,188 |
 | + embeddings **gte-modernbert-base** (128 dims) | 192 | 8,0448 | −0,140 |
 | **Deux étages** (classifieur `ups==1` + L1 sur la queue), sur e5 | 128 | **7,9596** | −0,226 |
-| **Blend final** (deux étages 0,60 / e5 0,40) | — | **7,9341** | **−0,251 (−3,1 %)** |
+| **Blend** (deux étages 0,60 / e5 0,40) | — | 7,9341 | −0,251 |
+| **Blend + règle deux étages par-dessus** | — | **7,9276** | **−0,258 (−3,1 %)** |
 
 Soit **−33,4 %** sur la baseline médiane (11,9074), contre −31,3 % avant cette session.
+Soumission finale : `submissions/submission_final_blend2s.csv`.
+
+### Ablation des embeddings (ce que les deux tests d'isolation ont tranché)
+| Modèle | Dims | Variance SVD | MAE | Convergé |
+|---|---|---|---|---|
+| **e5-small-v2** | **64** | 0,583 | **7,9968** | oui (2784) |
+| e5-small-v2 | 128 | 0,736 | 8,0325 | oui (3938, plafond relevé à 6000) |
+| gte-modernbert-base | 64 | — | 8,0455 | oui (2918) |
+| gte-modernbert-base | 128 | 0,696 | 8,0448 | non (2995 / 3000) |
+
+- **L'écart e5 / modernbert vient du modèle, pas de la dimensionnalité** : à 64 dimensions
+  identiques, modernbert reste 0,049 derrière. Le confondu du premier test est levé.
+- **Plus de dimensions dégrade**, y compris à budget d'arbres équitable. Cela **invalide** ce que
+  ce rapport annonçait comme premier levier (« la SVD à 64 dims ne retient que 58,3 % »). La
+  variance retenue n'est donc pas le bon critère pour choisir le nombre de composantes : chaque
+  dimension supplémentaire est une occasion de plus pour le GBM d'ajuster du bruit.
+- **Piège de mesure rencontré** : les runs à 192 features s'arrêtaient au plafond de 3000 arbres
+  sans que l'early-stopping se déclenche — ils progressaient encore. Comparer des configurations
+  à nombre de features différent exige de vérifier que chacune a convergé, sinon on mesure le
+  budget d'entraînement et non la qualité des features.
+
+### La règle « réponds 1 » appliquée au blend
+Gain réel mais faible (−0,0065, confirmé à −0,0069 sur la moitié non vue) : le blend contient
+déjà le modèle deux étages à 60 %, la règle y était donc à moitié appliquée. Le seuil retenu
+(0,45) force **68 % des prédictions test à 1** alors que 52 % des commentaires valent réellement
+1 — sur-prédire la médiane est optimal en MAE, mais ce réglage serait mauvais pour toute
+métrique sensible à la moyenne (RMSE).
 
 ### Ce que la session a appris
 - **Le GPU change la faisabilité, pas seulement la vitesse.** Encoder 4,23 M commentaires prend
@@ -111,12 +139,19 @@ Soit **−33,4 %** sur la baseline médiane (11,9074), contre −31,3 % avant ce
 - **`UnicodeEncodeError` sur `★`** dans la sortie du blend : la console Windows est en cp1252,
   le run entier plantait *après* que le blend avait abouti, résultat perdu.
 
-### Prochaines pistes, par rapport coût/bénéfice
-1. Tronquer modernbert à 64 dims pour isoler modèle vs dimensionnalité (1 run GBM, ~25 min).
-2. e5-small en 128 dims : la SVD à 64 ne retient que 58,3 % de la variance (~35 min).
-3. Deux étages appliqué au blend plutôt qu'à un seul modèle.
-4. Fine-tuning end-to-end objectif L1 — désormais réaliste, 16 Go de VRAM suffisent pour un
-   encodeur *base*.
+### Prochaines pistes
+Les pistes 1 à 3 de la liste initiale ont été exécutées (résultats ci-dessus) : les deux
+premières sont des **résultats négatifs**, la troisième un gain marginal. On est entré dans les
+rendements décroissants côté assemblage — les trois derniers gains valent 0,037, puis 0,026,
+puis 0,0065.
+
+Ce qui reste porte donc sur le **signal**, pas sur la combinaison :
+1. **Fine-tuning end-to-end objectif L1** : entraîner l'encodeur *sur la tâche* au lieu
+   d'utiliser des embeddings figés. C'est le seul levier qui peut encore apporter du signal
+   texte nouveau. Réaliste ici (16 Go de VRAM suffisent pour un encodeur *base*).
+2. **Dimensionnalité en dessous de 64** : puisque 128 dégrade et 64 gagne, l'optimum n'a pas été
+   encadré par le bas — 32 dims n'a jamais été testé.
+3. **Features de graphe** sur l'arbre de réponses (node2vec avait échoué ; un GNN reste ouvert).
 
 ### Impasses Kaggle (GPU) rencontrées
 - GPU **P100 (sm_60)** attribué : incompatible avec le PyTorch pré-installé de Kaggle (sm_70+).
