@@ -1,0 +1,33 @@
+{
+  "question": "l ecart e5 vs modernbert vient-il du modele ou du nombre de dimensions ?",
+  "reponse": "du modele: a 64 dims identiques, modernbert=8.0455 vs e5=7.9968",
+  "runs": {
+    "e5_64": {
+      "mae": 7.9968,
+      "best_iter": 2784,
+      "svd_var": 0.583,
+      "converge": true
+    },
+    "e5_128": {
+      "mae": 8.0386,
+      "best_iter": 2999,
+      "svd_var": 0.736,
+      "converge": false,
+      "note": "plafond 3000 atteint, early-stopping jamais declenche"
+    },
+    "modernbert_64": {
+      "mae": 8.0455,
+      "best_iter": 2918,
+      "converge": true
+    },
+    "modernbert_128": {
+      "mae": 8.0448,
+      "best_iter": 2995,
+      "svd_var": 0.696,
+      "converge": false
+    }
+  },
+  "conclusion_1": "modernbert perd contre e5 a dimensionnalite egale: confondu leve",
+  "conclusion_2": "plus de dimensions ne gagne pas, mais les runs 192 features n ont pas converge (budget d arbres insuffisant) - relance en cours a 6000 rounds",
+  "hypothese_invalidee": "le rapport annoncait la SVD a 64 dims comme premier levier (58,3% de variance retenue); passer a 128 degrade de 0.042"
+}
