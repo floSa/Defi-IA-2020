@@ -4,7 +4,7 @@
 | Machine | CPU | RAM | GPU | Rôle |
 |---|---|---|---|---|
 | Laptop (session actuelle) | — | ? | **aucun** | Dev, EDA, features, GBM légers |
-| Desktop perso | Ryzen 9600X | 64 Go | **RTX 4060 Ti (8 Go VRAM)** | Features lourdes, GBM, fine-tuning transformer *small* |
+| Desktop perso | Ryzen 9600X | 64 Go | **RTX 4060 Ti (16 Go VRAM, 35 TFLOPS fp16 mesurés)** | Features lourdes, GBM, embeddings, fine-tuning transformer *base* |
 | GPU distant | — | — | T4/L4/A100 selon offre | Transformers plus lourds, gros embeddings |
 
 ## Ce qui tourne où
