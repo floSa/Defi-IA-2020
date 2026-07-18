@@ -476,12 +476,23 @@ def train_gbm(config: str, log_target, objective, tag: str, eval_only: bool, sam
     del df_fit, df_val, model; gc.collect()
 
     # --- Soumission : ré-entraînement sur le train (sous-échantillonné si trop gros pour la RAM) ---
-    RETRAIN_CAP = 2_000_000  # tient dans ~7 Go avec ~65 features denses ; 2M lignes = amplement suffisant
+    # Cap adaptatif : sur une machine 64 Go on entraîne sur tout le train ; le plafond de 2M
+    # lignes venait du laptop 7,4 Go et coûtait 38% des données pour rien.
+    # LightGBM a besoin d'environ 3x la taille du DataFrame (copie + binning histogramme).
+    import psutil
+
+    bytes_per_row = 8 * max(len(cols), 1)
+    avail = psutil.virtual_memory().available
+    RETRAIN_CAP = max(500_000, int(avail * 0.5 / (bytes_per_row * 3)))
     if len(tr) > RETRAIN_CAP:
         rng2 = np.random.default_rng(cfg.seed + 1)
         keep = np.sort(rng2.choice(len(tr), size=RETRAIN_CAP, replace=False))
         tr = tr.iloc[keep].copy(); gc.collect()
-        click.echo(f"[gbm] ré-entraînement sur {RETRAIN_CAP:,} lignes (cap mémoire)")
+        click.echo(f"[gbm] ré-entraînement sur {RETRAIN_CAP:,} lignes "
+                   f"(cap mémoire, {avail/1e9:.0f} Go dispo)")
+    else:
+        click.echo(f"[gbm] ré-entraînement sur tout le train ({len(tr):,} lignes, "
+                   f"{avail/1e9:.0f} Go dispo)")
     test_pred, _ = train_full_predict(tr, te, cols, "ups", params, best, log_target=lt)
     test_pred = np.clip(test_pred, -50, None)  # bornes douces (ups peut être négatif)
     subs = cfg.resolve("submissions"); subs.mkdir(parents=True, exist_ok=True)

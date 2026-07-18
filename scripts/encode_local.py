@@ -21,9 +21,9 @@ from sklearn.decomposition import TruncatedSVD
 
 MODEL_NAME = os.environ.get("EMB_MODEL", "intfloat/e5-small-v2")
 PREFIX = os.environ.get("EMB_PREFIX", "passage: ")
-N_COMPONENTS = 64
+N_COMPONENTS = int(os.environ.get("EMB_COMPONENTS", "64"))
 SAMPLE_SIZE = 200_000
-BATCH_SIZE = 512
+BATCH_SIZE = int(os.environ.get("EMB_BATCH", "512"))
 CHUNK = 400_000
 SEED = 42
 SUFFIX = os.environ.get("EMB_SUFFIX", "emb")
