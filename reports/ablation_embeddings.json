@@ -56,9 +56,21 @@
       "best_iter": 4286,
       "plafond": 8000,
       "converge": true
+    },
+    "modernbert_64_12000": {
+      "mae": 7.9996,
+      "best_iter": 10176,
+      "plafond": 12000,
+      "converge": true
+    },
+    "modernbert_128_12000": {
+      "mae": 8.0067,
+      "best_iter": 7459,
+      "plafond": 12000,
+      "converge": true
     }
   },
-  "conclusion_1": "EN SURSIS: les embeddings modernbert exigent bien plus d arbres que e5 (qui converge a 2784). A 6000 ils progressent encore et l ecart se resserre (8.0455 -> 8.0195). Impossible d affirmer que modernbert perd tant qu il n a pas converge. Relances a 12000 en cours.",
+  "conclusion_1": "RETRACTEE. Les deux encodeurs sont EQUIVALENTS en precision: modernbert-64 converge a 7.9996 contre 7.9968 pour e5-64, soit 0.0028 - sous le bruit de LightGBM (0.007 mesure entre deux runs identiques). Le resultat negatif initial (-0.048 en defaveur de modernbert) etait entierement un artefact de budget d arbres insuffisant.",
   "conclusion_2": "plus de dimensions ne gagne pas, CONFIRME a budget equitable: e5 128 dims converge a 8.0325 contre 7.9968 en 64 dims. Le premier test (8.0386) etait sous-entraine mais le classement etait deja bon.",
   "hypothese_invalidee": "le rapport annoncait la SVD a 64 dims comme premier levier (58,3% de variance retenue); passer a 128 degrade de 0.042",
   "conclusion_3": "32 et 64 dims sont indiscernables (7.9973 vs 7.9968). On peut diviser par deux le nombre de dimensions sans perte, au prix de deux fois plus d arbres (5653 vs 2784): l information est la, elle est juste plus difficile a extraire une fois comprimee.",
@@ -71,5 +83,14 @@
     "forme": "U avec plateau optimal entre 32 et 64, tous points convergés",
     "lecture": "a 16 dims on a jete du signal utile; a 128 on donne au GBM trop d occasions d ajuster du bruit"
   },
-  "correction": "j avais avance que moins de dimensions exige plus d arbres: faux. 16 dims converge en 4286 arbres, moins que les 5653 de 32 dims. Le pic d arbres est au milieu de la courbe, la ou il y a le plus a extraire."
+  "correction": "j avais avance que moins de dimensions exige plus d arbres: faux. 16 dims converge en 4286 arbres, moins que les 5653 de 32 dims. Le pic d arbres est au milieu de la courbe, la ou il y a le plus a extraire.",
+  "conclusion_1_cout": "e5 reste le bon choix pour son COUT et non sa precision: 13 min d encodage contre 67, et 2784 arbres pour converger contre 10176.",
+  "trajectoire_de_l_erreur": {
+    "modernbert_64": {
+      "3000": 8.0455,
+      "6000": 8.0195,
+      "12000": 7.9996
+    },
+    "ampleur": "erreur de 0.046, soit 10x l ecart reel entre les deux modeles"
+  }
 }

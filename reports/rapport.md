@@ -77,7 +77,7 @@ est **vérifié**. Toutes les MAE ci-dessous sont mesurées sur le même holdout
 |---|---|---|---|
 | Champion CPU reproduit en local | 64 | 8,1851 | référence |
 | + embeddings **e5-small-v2** (64 dims) | 128 | **7,9968** | −0,188 |
-| + embeddings **gte-modernbert-base** (128 dims) | 192 | 8,0448 | −0,140 |
+| + embeddings **gte-modernbert-base** (64 dims, convergé) | 128 | 7,9996 | −0,186 |
 | **Deux étages** (classifieur `ups==1` + L1 sur la queue), sur e5 | 128 | **7,9596** | −0,226 |
 | **Blend** (deux étages 0,60 / e5 0,40) | — | 7,9341 | −0,251 |
 | **Blend + règle deux étages par-dessus** | — | **7,9276** | **−0,258 (−3,1 %)** |
@@ -85,24 +85,48 @@ est **vérifié**. Toutes les MAE ci-dessous sont mesurées sur le même holdout
 Soit **−33,4 %** sur la baseline médiane (11,9074), contre −31,3 % avant cette session.
 Soumission finale : `submissions/submission_final_blend2s.csv`.
 
-### Ablation des embeddings (ce que les deux tests d'isolation ont tranché)
-| Modèle | Dims | Variance SVD | MAE | Convergé |
+### Ablation des embeddings — tous les points convergés
+| Modèle | Dims | MAE | best_iter | Plafond |
 |---|---|---|---|---|
-| **e5-small-v2** | **64** | 0,583 | **7,9968** | oui (2784) |
-| e5-small-v2 | 128 | 0,736 | 8,0325 | oui (3938, plafond relevé à 6000) |
-| gte-modernbert-base | 64 | — | 8,0455 | oui (2918) |
-| gte-modernbert-base | 128 | 0,696 | 8,0448 | non (2995 / 3000) |
+| e5-small-v2 | 16 | 8,0264 | 4 286 | 8 000 |
+| **e5-small-v2** | **32** | **7,9973** | 5 653 | 6 000 |
+| **e5-small-v2** | **64** | **7,9968** | 2 784 | 3 000 |
+| e5-small-v2 | 128 | 8,0325 | 3 938 | 6 000 |
+| **gte-modernbert-base** | **64** | **7,9996** | **10 176** | 12 000 |
+| gte-modernbert-base | 128 | 8,0067 | 7 459 | 12 000 |
 
-- **L'écart e5 / modernbert vient du modèle, pas de la dimensionnalité** : à 64 dimensions
-  identiques, modernbert reste 0,049 derrière. Le confondu du premier test est levé.
-- **Plus de dimensions dégrade**, y compris à budget d'arbres équitable. Cela **invalide** ce que
-  ce rapport annonçait comme premier levier (« la SVD à 64 dims ne retient que 58,3 % »). La
-  variance retenue n'est donc pas le bon critère pour choisir le nombre de composantes : chaque
-  dimension supplémentaire est une occasion de plus pour le GBM d'ajuster du bruit.
-- **Piège de mesure rencontré** : les runs à 192 features s'arrêtaient au plafond de 3000 arbres
-  sans que l'early-stopping se déclenche — ils progressaient encore. Comparer des configurations
-  à nombre de features différent exige de vérifier que chacune a convergé, sinon on mesure le
-  budget d'entraînement et non la qualité des features.
+**Courbe de dimensionnalité en U**, plateau optimal entre 32 et 64 : à 16 dims on a jeté du
+signal utile, à 128 on donne au GBM trop d'occasions d'ajuster du bruit. La variance retenue par
+la SVD n'est **pas** le bon critère de choix (0,736 à 128 dims fait moins bien que 0,583 à 64).
+
+**Les deux encodeurs sont équivalents en précision** : 7,9996 contre 7,9968, soit 0,0028 —
+en dessous du bruit de LightGBM (deux runs identiques sur machines différentes donnaient déjà
+0,007 d'écart). Le choix se fait donc sur le **coût**, où e5 domine nettement :
+
+| | e5-small-v2 | gte-modernbert-base |
+|---|---|---|
+| Encodage de 4,23 M textes | **13 min** | 67 min |
+| Arbres nécessaires pour converger | **2 784** | 10 176 |
+| MAE | 7,9968 | 7,9996 |
+
+→ **e5-small-v2 reste le bon choix, pour son coût, pas pour sa précision.**
+
+### Le piège de mesure qui a faussé cette section pendant trois heures
+Ce rapport a d'abord affirmé — et un commit a publié — que *« gte-modernbert-base (2025) perd
+contre e5-small-v2 (2023) »*, avec un écart de 0,048. **C'était faux.** Les runs modernbert
+s'arrêtaient au plafond d'arbres sans que l'early-stopping ait jamais pu se déclencher : ils
+progressaient encore. La MAE mesurait le **budget d'entraînement**, pas la qualité des features.
+
+Correction du chiffre au fil des budgets, pour modernbert-64 :
+`8,0455 (3 000) → 8,0195 (6 000) → 7,9996 (12 000, convergé)`.
+
+L'erreur valait 0,046 — **dix fois** l'écart réel entre les deux modèles, et sept fois le gain
+que l'ablation cherchait à détecter. Un garde-fou est désormais dans `cli.py` : il alerte dès que
+`best_iter + patience > plafond`. C'est lui qui a détecté deux des runs fautifs, après coup.
+
+**Règle à retenir** : comparer des configurations à nombre de features différent exige de
+vérifier que *chacune* a convergé. Plus de features (ou des features plus difficiles à exploiter)
+demande plus d'arbres ; à budget fixe, on classe les budgets et non les modèles.
 
 ### La règle « réponds 1 » appliquée au blend
 Gain réel mais faible (−0,0065, confirmé à −0,0069 sur la moitié non vue) : le blend contient
@@ -115,12 +139,12 @@ métrique sensible à la moyenne (RMSE).
 - **Le GPU change la faisabilité, pas seulement la vitesse.** Encoder 4,23 M commentaires prend
   **13 min** avec e5-small (fp16, tri par longueur pour réduire le padding, SVD en streaming) là
   où le kernel Kaggle estimait **47 h en CPU** et se faisait annuler. Facteur ~280.
-- **Plus récent et plus gros ≠ meilleur.** `gte-modernbert-base` (2025, 149 M params, variance
-  SVD retenue 0,696) fait **moins bien** que `e5-small-v2` (2023, 33 M params, variance 0,583),
-  pour **5× le coût d'encodage** (67 min vs 13 min). *Réserve de méthode :* modèle et
-  dimensionnalité changent simultanément dans cette comparaison ; le test isolant (tronquer
-  modernbert à ses 64 premières composantes SVD, qui sont ordonnées par variance décroissante)
-  reste à faire avant de conclure sur le modèle seul.
+- **Plus récent et plus gros ≠ plus précis, mais surtout : beaucoup plus cher.**
+  `gte-modernbert-base` (2025, 149 M params) et `e5-small-v2` (2023, 33 M) atteignent la **même
+  MAE** (7,9996 vs 7,9968, écart sous le bruit). Le récent coûte 5× plus à encoder et 3,7× plus
+  d'arbres à exploiter — d'où le choix d'e5. *Cette conclusion a d'abord été fausse dans le sens
+  inverse* (« modernbert perd de 0,048 ») faute de budget d'arbres suffisant ; voir la section
+  sur le piège de mesure, qui est probablement l'enseignement le plus transférable de la session.
 - **Le signal texte est diffus.** Aucun `emb_*` n'entre dans le top-15 des features par gain —
   les structurelles dominent toujours — et pourtant les 64 dimensions valent ensemble 0,19 point
   de MAE. Conséquence pratique : ne pas élaguer ces features sur un critère de gain individuel.
