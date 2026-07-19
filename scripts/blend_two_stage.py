@@ -37,7 +37,7 @@ _, val_idx = temporal_holdout_indices(tr_meta["created_utc"].to_numpy(),
                                       int(cfg["cv"].get("val_days", 7)))
 truth = tr_meta.iloc[val_idx][["id", "ups"]].reset_index(drop=True)
 
-weights = json.load(open("reports/blend_final_gpu.json"))["weights"]
+weights = json.load(open("reports/blend_final_hybrid.json"))["weights"]
 weights = {k: w for k, w in weights.items() if w > 1e-6}
 print(f"[blend2s] blend = {', '.join(f'{k} {w:.3f}' for k, w in weights.items())}", flush=True)
 

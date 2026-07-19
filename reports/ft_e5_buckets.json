@@ -1,0 +1,10 @@
+{
+  "model": "intfloat/e5-small-v2",
+  "tag": "ft_e5_buckets",
+  "objective": "buckets",
+  "auc_holdout": 0.6179110910790615,
+  "epochs": 2,
+  "batch": 256,
+  "lr": 2e-05,
+  "minutes": 282.4733897368113
+}

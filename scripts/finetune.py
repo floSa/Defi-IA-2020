@@ -64,15 +64,22 @@ class TextDS(Dataset):
         return (t, self.targets[i]) if self.targets is not None else t
 
 
-class Regressor(torch.nn.Module):
-    """Encodeur + pooling moyen masqué + tête linéaire scalaire."""
+# Tranches d'upvotes pour l'objectif `buckets` : le binaire ups==1 n'apprend au modèle qu'à
+# repérer le pic ; les tranches lui font apprendre l'INTENSITÉ de la viralité, qui est là où se
+# joue la MAE (la queue). Bornes choisies sur la distribution (médiane 1, moyenne 12,7, max 6761).
+BUCKETS = [1.5, 3.5, 10.5, 50.5]   # -> 5 classes : {1} · 2-3 · 4-10 · 11-50 · 51+
 
-    def __init__(self, name: str):
+
+class Regressor(torch.nn.Module):
+    """Encodeur + pooling moyen masqué + tête linéaire (scalaire, ou n_out classes)."""
+
+    def __init__(self, name: str, n_out: int = 1):
         super().__init__()
         # dtype fp32 explicite : certains dépôts publient des poids fp16 que le GradScaler
         # refuse d'unscaler. L'AMP gère la fp16 au niveau des calculs, pas des paramètres.
         self.enc = AutoModel.from_pretrained(name, trust_remote_code=True, dtype=torch.float32)
-        self.head = torch.nn.Linear(self.enc.config.hidden_size, 1)
+        self.n_out = n_out
+        self.head = torch.nn.Linear(self.enc.config.hidden_size, n_out)
 
     def embed(self, **batch):
         h = self.enc(**batch).last_hidden_state
@@ -80,7 +87,8 @@ class Regressor(torch.nn.Module):
         return (h * mask).sum(1) / mask.sum(1).clamp(min=1e-9)
 
     def forward(self, **batch):
-        return self.head(self.embed(**batch)).squeeze(-1)
+        out = self.head(self.embed(**batch))
+        return out if self.n_out > 1 else out.squeeze(-1)
 
 
 def save_ckpt(path: Path, **state) -> None:
@@ -101,19 +109,30 @@ def main() -> None:
     ap.add_argument("--prefix", default="passage: ")
     ap.add_argument("--smoke", type=int, default=0,
                     help="Test de bout en bout sur N lignes (valide le chemin complet vite).")
-    ap.add_argument("--objective", default="l1", choices=["l1", "cls"],
+    ap.add_argument("--objective", default="l1", choices=["l1", "cls", "buckets"],
                     help="l1 = régression directe sur ups (s'effondre sur la médiane : "
                          "52%% des ups valent 1, et la constante optimale en L1 EST la "
                          "médiane) ; cls = classification ups==1, équilibrée 52/48 donc "
                          "insensible à ce collapsus, et c'est le signal qu'exploite le "
                          "modèle deux étages.")
+    ap.add_argument("--crossfit-k", type=int, default=0,
+                    help="Nombre de plis pour la generation hors-echantillon des features. "
+                         "Sans cela, le modele predit les lignes qu'il a vues a l'entrainement "
+                         "et ses features sont optimistes de 0,04 a 0,08 d'AUC sur ces lignes : "
+                         "le GBM leur fait alors trop confiance.")
+    ap.add_argument("--crossfit-fold", type=int, default=-1,
+                    help="Indice du pli a tenir hors entrainement (0..k-1).")
     args = ap.parse_args()
 
     t_start = time.time()
     cfg = load_config("configs/default.yaml")
     processed = cfg.resolve("processed")
     oof_dir = processed / "oof"; oof_dir.mkdir(parents=True, exist_ok=True)
-    ckpt_dir = Path("models") / args.tag; ckpt_dir.mkdir(parents=True, exist_ok=True)
+    # Le pli fait partie de l'identite du run : sans cela le pli 1 reprend le checkpoint du
+    # pli 0, le croit termine, saute l'entrainement et reutilise SON modele — ce qui annule
+    # exactement la separation que la validation croisee doit garantir.
+    run_name = args.tag if args.crossfit_fold < 0 else f"{args.tag}_fold{args.crossfit_fold}"
+    ckpt_dir = Path("models") / run_name; ckpt_dir.mkdir(parents=True, exist_ok=True)
     ckpt_path = ckpt_dir / "checkpoint.pt"
 
     log(f"modele={args.model} tag={args.tag} batch={args.batch} epochs={args.epochs}")
@@ -132,14 +151,36 @@ def main() -> None:
     texts = tr["body"].fillna("").astype(str).tolist()
     ups = tr["ups"].to_numpy(dtype="float32")
     ids = tr["id"].to_numpy()
+    # --- Validation croisée : ce pli est retiré de l'entraînement pour que ses prédictions
+    # soient hors échantillon (et donc comparables à celles du holdout et du test). ---
+    held_idx = np.array([], dtype=int)
+    if args.crossfit_k > 1:
+        assert 0 <= args.crossfit_fold < args.crossfit_k, "--crossfit-fold hors bornes"
+        rng = np.random.default_rng(cfg.seed)
+        assign = rng.integers(0, args.crossfit_k, size=len(fit_idx))
+        held_idx = fit_idx[assign == args.crossfit_fold]
+        fit_idx = fit_idx[assign != args.crossfit_fold]
+        log(f"CROSSFIT pli {args.crossfit_fold}/{args.crossfit_k} : "
+            f"{len(fit_idx):,} lignes d'entrainement, {len(held_idx):,} tenues a l'ecart")
+
     fit_texts = [args.prefix + texts[i] for i in fit_idx]
     # En classification, la cible est l'indicatrice ups==1 (et non ups lui-même).
-    fit_y = (ups[fit_idx] == 1).astype("float32") if args.objective == "cls" else ups[fit_idx]
+    if args.objective == "cls":
+        fit_y = (ups[fit_idx] == 1).astype("float32")
+    elif args.objective == "buckets":
+        fit_y = np.digitize(ups[fit_idx], BUCKETS).astype("int64")
+    else:
+        fit_y = ups[fit_idx]
     log(f"fit={len(fit_idx):,} holdout={len(val_idx):,} objectif={args.objective}")
     if args.objective == "cls":
         log(f"part de ups==1 dans le fit : {fit_y.mean():.1%} (equilibre -> pas de collapsus)")
+    elif args.objective == "buckets":
+        rep = np.bincount(fit_y, minlength=len(BUCKETS) + 1) / len(fit_y)
+        log("repartition des tranches {1}/2-3/4-10/11-50/51+ : "
+            + " ".join(f"{r:.1%}" for r in rep))
 
-    model = Regressor(args.model).cuda()
+    n_out = len(BUCKETS) + 1 if args.objective == "buckets" else 1
+    model = Regressor(args.model, n_out=n_out).cuda()
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
     scaler = torch.amp.GradScaler("cuda")
     tok = AutoTokenizer.from_pretrained(args.model)
@@ -172,9 +213,12 @@ def main() -> None:
                           return_tensors="pt").to("cuda")
                 with torch.amp.autocast("cuda", dtype=torch.float16):
                     out = model(**enc)
-                    loss = (torch.nn.functional.binary_cross_entropy_with_logits(out, by)
-                            if args.objective == "cls"
-                            else torch.nn.functional.l1_loss(out, by))
+                    if args.objective == "cls":
+                        loss = torch.nn.functional.binary_cross_entropy_with_logits(out, by)
+                    elif args.objective == "buckets":
+                        loss = torch.nn.functional.cross_entropy(out, by)
+                    else:
+                        loss = torch.nn.functional.l1_loss(out, by)
                 scaler.scale(loss).backward()
                 scaler.step(opt); scaler.update(); opt.zero_grad(set_to_none=True)
                 running += loss.item(); seen += 1
@@ -206,7 +250,8 @@ def main() -> None:
             raise ValueError("infer() appelé sur une liste vide — le découpage temporel a "
                              "probablement laissé une des partitions vide.")
         order = np.argsort([len(t) for t in texts_list], kind="stable")
-        preds = np.empty(len(texts_list), dtype=np.float32)
+        preds = np.empty((len(texts_list), n_out) if n_out > 1 else len(texts_list),
+                         dtype=np.float32)
         embs = None
         bs = args.batch * 2
         for s in range(0, len(order), bs):
@@ -215,7 +260,9 @@ def main() -> None:
                       max_length=SEQ_LEN, return_tensors="pt").to("cuda")
             with torch.amp.autocast("cuda", dtype=torch.float16):
                 e = model.embed(**enc)
-                p = model.head(e).squeeze(-1)
+                p = model.head(e)
+                if n_out == 1:
+                    p = p.squeeze(-1)
             e = e.float().cpu().numpy()
             if embs is None:
                 embs = np.empty((len(texts_list), e.shape[1]), dtype=np.float32)
@@ -225,9 +272,54 @@ def main() -> None:
                 log(f"  inférence {s:,}/{len(order):,}")
         return preds, embs
 
+    # --- Mode validation croisée : on ne produit que les PRÉDICTIONS (les embeddings
+    # fine-tunés se sont montrés perdants, seule la sortie du modèle nous intéresse). ---
+    if args.crossfit_k > 1:
+        cf_dir = processed / "crossfit"; cf_dir.mkdir(parents=True, exist_ok=True)
+        te = pd.read_parquet("data/interim/test.parquet", columns=["id", "body"])
+        parts = {
+            "held": (ids[held_idx], [args.prefix + texts[i] for i in held_idx]),
+            "val": (ids[val_idx], [args.prefix + texts[i] for i in val_idx]),
+            "test": (te["id"].to_numpy(),
+                     [args.prefix + t for t in te["body"].fillna("").astype(str)]),
+        }
+        for part, (pids, ptexts) in parts.items():
+            log(f"inférence {part} ({len(ptexts):,})...")
+            pred, _ = infer(ptexts)
+            df = pd.DataFrame({"id": pids})
+            if n_out > 1:
+                z = pred - pred.max(1, keepdims=True)
+                pr = np.exp(z); pr /= pr.sum(1, keepdims=True)
+                for k in range(n_out):
+                    df[f"emb_pb{k}"] = pr[:, k].astype(np.float32)
+                centers = np.array([1.0, 2.5, 7.0, 30.0, 120.0], dtype=np.float32)
+                df["emb_exp"] = (pr * centers).sum(1).astype(np.float32)
+            else:
+                df["emb_p1"] = (1.0 / (1.0 + np.exp(-pred))).astype(np.float32)
+            out = cf_dir / f"{args.tag}_fold{args.crossfit_fold}_{part}.parquet"
+            df.to_parquet(out, compression="zstd", index=False)
+            log(f"  écrit {out.name}")
+        json.dump({"model": args.model, "tag": args.tag, "objective": args.objective,
+                   "crossfit_k": args.crossfit_k, "crossfit_fold": args.crossfit_fold,
+                   "minutes": (time.time() - t_start) / 60},
+                  open(f"reports/{args.tag}_fold{args.crossfit_fold}.json", "w"), indent=2)
+        log(f"TERMINE (pli {args.crossfit_fold}) en {(time.time()-t_start)/60:.0f} min")
+        return
+
     log("inférence sur le holdout...")
     val_pred, val_emb = infer([args.prefix + texts[i] for i in val_idx])
-    if args.objective == "cls":
+    if args.objective == "buckets":
+        from sklearn.metrics import roc_auc_score
+        yb = np.digitize(ups[val_idx], BUCKETS)
+        # Score comparable au binaire : AUC de « n'est PAS dans la tranche {1} », obtenue en
+        # sommant les probabilités des tranches supérieures.
+        pr = np.exp(val_pred - val_pred.max(1, keepdims=True))
+        pr /= pr.sum(1, keepdims=True)
+        score = float(roc_auc_score((yb > 0).astype(int), 1.0 - pr[:, 0]))
+        acc = float((pr.argmax(1) == yb).mean())
+        log(f"AUC HOLDOUT (ups!=1, via les tranches) = {score:.4f} | exactitude 5 classes = {acc:.3f}")
+        log(f"  a comparer a 0.6057 pour l'objectif binaire")
+    elif args.objective == "cls":
         from sklearn.metrics import roc_auc_score
         score = float(roc_auc_score((ups[val_idx] == 1).astype(int), val_pred))
         log(f"AUC HOLDOUT (texte seul, ups==1) = {score:.4f}")
@@ -245,7 +337,7 @@ def main() -> None:
         te = te.head(args.smoke).reset_index(drop=True)
     te_texts = [args.prefix + t for t in te["body"].fillna("").astype(str).tolist()]
     te_pred, te_emb = infer(te_texts)
-    if args.objective != "cls":
+    if args.objective == "l1":
         pd.DataFrame({"id": te["id"].to_numpy(), "pred": te_pred}).to_parquet(
             oof_dir / f"test_{args.tag}.parquet", index=False)
 
@@ -261,19 +353,33 @@ def main() -> None:
     cols = [f"emb_{i}" for i in range(n_comp)]
     # En classification, la probabilité prédite est elle-même une feature de premier ordre
     # pour le GBM (c'est l'étage A du modèle deux étages, appris sur le texte seul).
-    all_p = np.empty(len(texts), dtype=np.float32)
+    all_p = np.empty((len(texts), n_out) if n_out > 1 else len(texts), dtype=np.float32)
     all_p[fit_idx] = fit_pred; all_p[val_idx] = val_pred
     probs = {"train": all_p, "test": te_pred}
+
+
+    def softmax(z):
+        e = np.exp(z - z.max(1, keepdims=True))
+        return e / e.sum(1, keepdims=True)
+
     for name, arr, idx_ in [("train", all_emb, ids), ("test", te_emb, te["id"].to_numpy())]:
         red = svd.transform(arr).astype(np.float32)
         df = pd.DataFrame(red, columns=cols); df.insert(0, "id", idx_)
         if args.objective == "cls":
             df["emb_p1"] = 1.0 / (1.0 + np.exp(-probs[name]))  # logit -> probabilité
+        elif args.objective == "buckets":
+            pr = softmax(probs[name])
+            for k in range(n_out):
+                df[f"emb_pb{k}"] = pr[:, k].astype(np.float32)
+            # Espérance de l'ups sous la loi prédite : une seule feature qui résume l'intensité
+            # attendue, souvent plus exploitable par le GBM que les probabilités brutes.
+            centers = np.array([1.0, 2.5, 7.0, 30.0, 120.0], dtype=np.float32)
+            df["emb_exp"] = (pr * centers).sum(1).astype(np.float32)
         df.to_parquet(processed / f"{name}_{args.tag}emb.parquet", compression="zstd", index=False)
         log(f"écrit {name}_{args.tag}emb.parquet")
 
     json.dump({"model": args.model, "tag": args.tag, "objective": args.objective,
-               ("auc_holdout" if args.objective == "cls" else "mae_holdout"): score,
+               ("auc_holdout" if args.objective in ("cls", "buckets") else "mae_holdout"): score,
                "epochs": args.epochs,
                "batch": args.batch, "lr": args.lr, "minutes": (time.time() - t_start) / 60},
               open(f"reports/{args.tag}.json", "w"), indent=2)
