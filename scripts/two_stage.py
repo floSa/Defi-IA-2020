@@ -113,7 +113,7 @@ print(f"[2stage] MAE sur la 2e moitié, JAMAIS vue par le réglage : {mae_report
 # La référence à un étage se lit dans le dernier rapport GBM plutôt que codée en dur : une
 # valeur figée devient silencieusement fausse dès que le jeu de features change, et affiche
 # alors un gain gonflé (elle a annoncé -0.057 au lieu de -0.027 après le passage à l'hybride).
-ref_path = Path("reports/gbm_hybrid_full.json")
+ref_path = Path("reports/gbm_clean_full.json")
 ref = json.load(open(ref_path))["holdout"]["mae"] if ref_path.exists() else None
 delta = f" | référence 1 étage = {ref:.4f} | delta={mae_full-ref:+.4f}" if ref else \
         " (référence 1 étage introuvable : lance d'abord train-gbm)"

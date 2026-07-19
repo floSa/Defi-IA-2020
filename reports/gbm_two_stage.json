@@ -1,7 +1,7 @@
 {
-  "mae_holdout": 7.938075414848443,
+  "mae_holdout": 7.900173920691721,
   "threshold": 0.3,
   "n_trees_stage_a": 763,
   "n_trees_stage_b": 1479,
-  "n_features": 129
+  "n_features": 134
 }

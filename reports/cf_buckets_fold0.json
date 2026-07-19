@@ -1,0 +1,8 @@
+{
+  "model": "intfloat/e5-small-v2",
+  "tag": "cf_buckets",
+  "objective": "buckets",
+  "crossfit_k": 2,
+  "crossfit_fold": 0,
+  "minutes": 53.87291495402654
+}
