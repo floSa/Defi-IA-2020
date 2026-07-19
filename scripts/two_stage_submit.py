@@ -66,18 +66,25 @@ def two_stage(Xf, yf, Xp, n_a: int, n_b: int) -> np.ndarray:
 
 
 # --- 1. OOF sur le holdout (entraîné sans le holdout, comme les autres modèles du blend) ---
+# Le nombre d'arbres optimal dépend du jeu de features : il se lit dans le rapport produit par
+# two_stage.py, jamais recopié en dur. Les valeurs figées 542/1050 dataient des embeddings de la
+# première session et faisaient tourner l'étage B avec 70% d'arbres en trop sur la base propre.
+ts = json.load(open("reports/two_stage.json"))
+N_A, N_B = ts["stage_a_best_iter"], ts["stage_b_best_iter"]
+print(f"[2stage-sub] arbres lus dans reports/two_stage.json : etage A {N_A}, etage B {N_B}",
+      flush=True)
 print("[2stage-sub] OOF holdout...", flush=True)
-oof_pred = two_stage(X.iloc[fit_idx], y[fit_idx], X.iloc[val_idx], 542, 1050)
+oof_pred = two_stage(X.iloc[fit_idx], y[fit_idx], X.iloc[val_idx], N_A, N_B)
 oof_mae = float(np.abs(oof_pred - y[val_idx]).mean())
 print(f"[2stage-sub] MAE holdout={oof_mae:.4f} ({time.time()-t0:.0f}s)", flush=True)
 pd.DataFrame({"id": val_ids, "pred": oof_pred}).to_parquet(
     oof_dir / "oof_two_stage.parquet", index=False)
 
 # --- 2. Ré-entraînement sur tout le train -> prédictions test ---
-# Les étages ont convergé à 542 / 1050 arbres sur 71% des lignes ; on met à l'échelle du
-# train complet pour garder une capacité comparable (pas d'early stopping possible ici).
+# Les étages ont convergé sur la portion « fit » ; on met à l'échelle du train complet pour
+# garder une capacité comparable (pas d'early stopping possible sans jeu de validation).
 scale = len(X) / len(fit_idx)
-n_a, n_b = int(542 * scale), int(1050 * scale)
+n_a, n_b = int(N_A * scale), int(N_B * scale)
 print(f"[2stage-sub] ré-entraînement full train ({len(X):,} lignes, "
       f"{n_a} + {n_b} arbres)...", flush=True)
 test_pred = np.clip(two_stage(X, y, Xte, n_a, n_b), -50, None)

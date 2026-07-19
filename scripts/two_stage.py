@@ -121,6 +121,11 @@ print(f"[2stage] MAE sur le holdout entier (comparable au 1 étage) : {mae_full:
       flush=True)
 json.dump({"mae_by_threshold_tune_half": results, "best_threshold": best_t,
            "mae_report_half_unseen": mae_report, "mae_full_holdout": mae_full,
-           "reference_single_stage": ref, "stage_a_auc": float(auc)},
+           "reference_single_stage": ref, "stage_a_auc": float(auc),
+           # Consommés par two_stage_submit.py : le nombre d'arbres optimal dépend du jeu de
+           # features et doit voyager avec lui, jamais être recopié en dur dans l'autre script.
+           "stage_a_best_iter": int(clf.best_iteration),
+           "stage_b_best_iter": int(reg.best_iteration),
+           "n_fit_rows": int(len(fit_idx))},
           open("reports/two_stage.json", "w"), indent=2)
 print(f"[2stage] terminé en {(time.time()-t0)/60:.1f} min -> reports/two_stage.json", flush=True)

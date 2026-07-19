@@ -21,5 +21,8 @@
   "mae_report_half_unseen": 8.000788874374749,
   "mae_full_holdout": 7.898875777053312,
   "reference_single_stage": 7.938746785583296,
-  "stage_a_auc": 0.7934173756309293
+  "stage_a_auc": 0.7934173756309293,
+  "stage_a_best_iter": 504,
+  "stage_b_best_iter": 616,
+  "n_fit_rows": 2284740
 }
