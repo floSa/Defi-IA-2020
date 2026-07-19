@@ -30,6 +30,19 @@ make submit
 | [docs/eda_findings.md](docs/eda_findings.md) | Constats EDA sur le corpus complet (chiffres) |
 | [docs/plan.md](docs/plan.md) | **Plan de modélisation à valider** |
 | [docs/compute_strategy.md](docs/compute_strategy.md) | Local vs GPU distant (desktop / Kaggle / Colab) |
+| [docs/preconisations.md](docs/preconisations.md) | **⚠️ À lire en premier** — l'écart validation / Kaggle et ce qu'il implique |
+| [reports/rapport.md](reports/rapport.md) | Résultats détaillés, ablations, pièges de mesure |
+
+## État au 19 juillet 2026
+| | MAE |
+|---|---|
+| Notre holdout temporel | 7,8695 |
+| **Score privé Kaggle** | **8,0878** |
+| 1ᵉʳ du classement 2020 | 7,8271 |
+
+**Notre validation surestime de 0,22** — plus que tous les gains cumulés de la dernière session.
+La priorité n'est donc plus d'optimiser le modèle mais de **réparer l'instrument de mesure**
+(validation multi-fenêtres). Détails et plan d'action : [docs/preconisations.md](docs/preconisations.md).
 
 ## Architecture
 ```

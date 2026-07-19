@@ -81,10 +81,34 @@ est **vérifié**. Toutes les MAE ci-dessous sont mesurées sur le même holdout
 | **+ probabilité issue du fine-tuning** (« hybride ») | 129 | **7,9660** | −0,219 |
 | **Deux étages** (classifieur `ups==1` + L1 sur la queue) | 129 | **7,9394** | −0,246 |
 | **Blend** (deux étages 0,55 / hybride 0,27 / e5 figé 0,18) | — | 7,9137 | −0,271 |
-| **Blend + règle deux étages par-dessus** | — | **7,9077** | **−0,277 (−3,4 %)** |
+| **Blend + règle deux étages par-dessus** | — | 7,9077 | −0,277 |
+| **Base hors échantillon** (tranches d'upvotes en validation croisée) | 134 | **7,9387** | — |
+| **+ deux étages · blend · règle finale** | — | **7,8695** | **−0,316 (−3,9 %)** |
 
-Soit **−33,6 %** sur la baseline médiane (11,9074), contre −31,3 % avant cette session.
-Soumission finale : `submissions/submission_final_hybrid2s.csv` (1 016 458 lignes, 0 NaN).
+Soit **−33,9 %** sur la baseline médiane (11,9074), contre −31,3 % avant cette session.
+Soumission finale : `submissions/submission_final_clean2s.csv` (1 016 458 lignes, 0 NaN).
+
+### ⚠️ Confrontation au classement Kaggle réel — l'écart qui relativise tout ce tableau
+| Mesure | MAE |
+|---|---|
+| Notre holdout temporel | 7,8695 |
+| **Score privé Kaggle** (70 % du test) | **8,0878** |
+| Score public Kaggle (30 % du test) | 8,2353 |
+| 1ᵉʳ du classement 2020 | 7,8271 |
+| 3ᵉ du classement 2020 | 7,9432 |
+
+**Notre validation surestime de 0,218** — soit davantage que la somme de tous les gains de la
+session GPU. Et l'écart de 0,147 entre score public et privé, mesuré sur le *même* jeu de test,
+signifie que **tout gain inférieur à ~0,15 obtenu sur une seule partition est indistinguable du
+bruit**. Les trois derniers gains de ce tableau (0,040 · 0,022 · 0,007) tombent tous en dessous.
+
+Cause la plus probable : toutes nos décisions (features, dimensionnalité, seuils, poids du blend)
+ont été prises sur **une unique fenêtre de 7 jours** — du surapprentissage de validation, auquel
+s'ajoute la dérive temporelle entre notre holdout (18-24 mai) et le test (25-31 mai).
+
+Conséquence : **on reste derrière les équipes de 2020**, malgré un GPU qu'elles n'avaient pas.
+La priorité n'est donc plus de gagner des millièmes, mais de réparer l'instrument de mesure.
+Voir [docs/preconisations.md](../docs/preconisations.md).
 
 Le blend retient **trois** modèles et écarte les trois antérieurs (poids exactement nul). Le
 modèle sur embeddings figés y garde 18 % du poids malgré un score individuel inférieur : il
